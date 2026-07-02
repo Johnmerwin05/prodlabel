@@ -2,6 +2,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/shared/services/api";
+import { resolveMediaUrl } from "@/shared/services/media-url";
 
 export type ColorPalette = "blue" | "green" | "purple" | "amber";
 
@@ -67,7 +68,7 @@ export function SystemSettingsProvider({ children }: { children: React.ReactNode
         queryKey: ["system-settings"],
         queryFn: async () => {
             const response = await api.get<{ data: SystemSettings }>("/system-settings");
-            return response.data.data;
+            return normalizeSettings(response.data.data);
         },
         staleTime: 5 * 60 * 1000,
     });
@@ -99,4 +100,11 @@ export function SystemSettingsProvider({ children }: { children: React.ReactNode
 
 export function useSystemSettings() {
     return React.useContext(SystemSettingsContext);
+}
+
+export function normalizeSettings(settings: SystemSettings): SystemSettings {
+    return {
+        ...settings,
+        favicon_url: resolveMediaUrl(settings.favicon_url),
+    };
 }

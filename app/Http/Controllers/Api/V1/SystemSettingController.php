@@ -8,6 +8,7 @@ use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class SystemSettingController extends Controller
 {
@@ -67,7 +68,7 @@ class SystemSettingController extends Controller
             'system_tagline' => $settings->system_tagline,
             'footer_content' => $settings->footer_content,
             'favicon_url' => $settings->favicon_path
-                ? Storage::disk('public')->url($settings->favicon_path)
+                ? '/storage/'.(string) Str::of($settings->favicon_path)->ltrim('/')
                 : null,
             'color_palette' => $settings->color_palette,
             'updated_at' => $settings->updated_at?->toISOString(),

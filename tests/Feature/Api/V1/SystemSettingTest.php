@@ -17,9 +17,12 @@ class SystemSettingTest extends TestCase
 
     public function test_public_clients_can_read_application_branding(): void
     {
+        SystemSetting::current()->update(['favicon_path' => 'system/favicon.png']);
+
         $this->getJson('/api/v1/system-settings')
             ->assertOk()
             ->assertJsonPath('data.system_name', 'ProdLabel')
+            ->assertJsonPath('data.favicon_url', '/storage/system/favicon.png')
             ->assertJsonPath('data.color_palette', 'blue');
     }
 

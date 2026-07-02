@@ -30,6 +30,7 @@ import { api } from "@/shared/services/api";
 import { useToastStore } from "@/stores/toastStore";
 import {
     colorPalettes,
+    normalizeSettings,
     type ColorPalette,
     type SystemSettings,
     useSystemSettings,
@@ -81,7 +82,7 @@ export function SettingsPage() {
             return response.data.data;
         },
         onSuccess: (savedSettings) => {
-            queryClient.setQueryData(["system-settings"], savedSettings);
+            queryClient.setQueryData(["system-settings"], normalizeSettings(savedSettings));
             setFavicon(null);
             setRemoveFavicon(false);
             if (faviconInputRef.current) faviconInputRef.current.value = "";
