@@ -3,6 +3,7 @@ import { Loader2Icon } from "lucide-react"
 import { Navigate, Outlet, useLocation } from "react-router-dom"
 
 import { useAuthStore } from "@/features/auth/authStore"
+import { useInactivityLogout } from "@/features/auth/useInactivityLogout"
 import { api } from "@/shared/services/api"
 
 export function ProtectedRoute() {
@@ -14,6 +15,8 @@ export function ProtectedRoute() {
   const [isLoadingUser, setIsLoadingUser] = React.useState(
     isAuthenticated && !user,
   )
+
+  useInactivityLogout()
 
   React.useEffect(() => {
     if (!isAuthenticated || user) {

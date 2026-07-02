@@ -52,6 +52,10 @@ return [
 
     'expiration' => null,
 
+    'last_used_at' => false,
+
+    'idle_expiration' => (int) env('SANCTUM_IDLE_EXPIRATION', 60),
+
     /*
     |--------------------------------------------------------------------------
     | Token Prefix

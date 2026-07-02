@@ -4,10 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useLocation, useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-    AlertCircleIcon,
-    Loader2Icon,
-} from "lucide-react";
+import { AlertCircleIcon, Loader2Icon } from "lucide-react";
 import { z } from "zod";
 
 import { cn } from "@/lib/utils";
@@ -59,34 +56,40 @@ export function LoginForm({
     async function onSubmit(values: LoginValues) {
         setServerError(null);
 
+        let response;
         try {
-            const response = await api.post("/auth/login", {
+            response = await api.post("/auth/login", {
                 username: values.username,
                 password: values.password,
             });
-
-            setSession({
-                user: response.data.user,
-                token: response.data.token,
-                remember: values.remember,
-            });
-            notify({
-                variant: "success",
-                title: "Signed in",
-                description: `Welcome back to your ${systemSettings.system_name} workspace.`,
-            });
-
-            const from =
-                (location.state as { from?: { pathname?: string } } | null)
-                    ?.from?.pathname ?? "/dashboard";
-            navigate(from, { replace: true });
         } catch (error: any) {
             const message =
                 error.response?.data?.message ??
                 error.response?.data?.errors?.username?.[0] ??
+                (error.request
+                    ? "Unable to reach the authentication server. Please check the API URL and CORS settings."
+                    : null) ??
+                error.message ??
                 "Unable to sign in.";
             setServerError(message);
+            return;
         }
+
+        setSession({
+            user: response.data.user,
+            token: response.data.token,
+            remember: values.remember,
+        });
+        notify({
+            variant: "success",
+            title: "Signed in",
+            description: `Welcome back to your ${systemSettings.system_name} workspace.`,
+        });
+
+        const from =
+            (location.state as { from?: { pathname?: string } } | null)?.from
+                ?.pathname ?? "/dashboard";
+        navigate(from, { replace: true });
     }
 
     return (
