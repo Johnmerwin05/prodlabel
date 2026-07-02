@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\AuditLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -11,7 +12,7 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function login(Request $request): JsonResponse
+    public function login(Request $request, AuditLogService $audit): JsonResponse
     {
         $credentials = $request->validate([
             'username' => ['required', 'string'],
@@ -36,6 +37,14 @@ class AuthController extends Controller
         }
 
         $token = $user->createToken('web-app')->plainTextToken;
+
+        $request->setUserResolver(fn () => $user);
+        $audit->activity('authentication', 'authentication.logged_in', [
+            'description' => $user->name.' logged in',
+            'method' => $request->method(),
+            'path' => '/'.$request->path(),
+            'status_code' => 200,
+        ], $request);
 
         return response()->json([
             'token' => $token,

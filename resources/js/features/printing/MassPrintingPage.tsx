@@ -16,7 +16,6 @@ export function MassPrintingPage() {
       <FilterBar>
         <Select><SelectTrigger><SelectValue placeholder="Customer" /></SelectTrigger><SelectContent><SelectItem value="northstar">NorthStar Dairy</SelectItem></SelectContent></Select>
         <Select><SelectTrigger><SelectValue placeholder="Template" /></SelectTrigger><SelectContent><SelectItem value="a4">A4 Milk Carton</SelectItem></SelectContent></Select>
-        <Select><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger><SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="printed">Printed</SelectItem></SelectContent></Select>
         <Button variant="secondary">Load Products</Button>
       </FilterBar>
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -25,7 +24,6 @@ export function MassPrintingPage() {
           { header: "Product ID", cell: (row) => row.id },
           { header: "SKU", cell: (row) => row.sku },
           { header: "Name", cell: (row) => row.name },
-          { header: "Quantity", cell: (row) => row.quantity },
         ]} />
         <Card>
           <CardHeader><CardTitle>Print Queue Summary</CardTitle><CardDescription>Preview selection before dispatching to Redis queue.</CardDescription></CardHeader>

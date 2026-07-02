@@ -6,6 +6,14 @@ export type Role = {
     id: number;
     name: string;
     slug: string;
+    permission_ids: number[];
+};
+
+export type Permission = {
+    id: number;
+    name: string;
+    slug: string;
+    module: string;
 };
 
 export type User = {
@@ -18,6 +26,8 @@ export type User = {
     locked_at: string | null;
     deleted_at: string | null;
     roles: Role[];
+    permission_ids: number[];
+    uses_custom_permissions: boolean;
     created_at: string;
     updated_at: string;
 };
@@ -74,6 +84,7 @@ export const userSchema = z.object({
     password: z.string().optional(),
     status: z.enum(["active", "inactive", "locked"]),
     role_ids: z.array(z.number()).min(1, "Select at least one role"),
+    permission_ids: z.array(z.number()),
 });
 
 export type UserFormValues = z.infer<typeof userSchema>;
@@ -90,7 +101,7 @@ export const defaultFilters: UserFilters = {
     statuses: [],
     withTrashed: false,
     page: 1,
-    perPage: 25,
+    perPage: 10,
 };
 
 export const userColumnLabels: Record<UserColumnKey, string> = {
@@ -158,6 +169,7 @@ export class UserPresenter {
             password: "",
             status: user?.status ?? "active",
             role_ids: user?.roles.map((role) => role.id) ?? [],
+            permission_ids: user?.permission_ids ?? [],
         };
     }
 
@@ -234,4 +246,36 @@ export class UserPresenter {
             .slice(0, 2)
             .toUpperCase();
     }
+}
+
+export function permissionGroup(permission: Permission) {
+    return ["product.print", "product.reprint"].includes(permission.slug)
+        ? "printing"
+        : permission.module;
+}
+
+export function permissionLabel(permission: Permission) {
+    const action = permission.slug.split(".").at(-1) ?? permission.name;
+    const labels: Record<string, string> = {
+        view: "View",
+        create: "Create",
+        update: "Edit",
+        delete: "Delete",
+        restore: "Restore",
+        print: "Print",
+        reprint: "Reprint",
+        export: "Export Data",
+        manage: "Create / Edit",
+        archive: "Delete / Archive",
+        lock: "Lock / Unlock",
+        "reset-password": "Reset Password",
+    };
+
+    return labels[action] ?? toTitleCase(action);
+}
+
+export function toTitleCase(value: string) {
+    return value
+        .replace(/[._-]+/g, " ")
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

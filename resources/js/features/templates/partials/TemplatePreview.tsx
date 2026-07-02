@@ -2,11 +2,17 @@ import {
     BarcodeIcon,
     ImageIcon,
     QrCodeIcon,
-    SquareDashedIcon,
     Trash2Icon,
 } from "lucide-react";
+import JsBarcode from "jsbarcode";
+import QRCode from "qrcode";
 import * as React from "react";
 
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 
 import {
@@ -19,6 +25,8 @@ import {
 type TemplatePreviewProps = {
     settings: CanvasSettings;
     elements: TemplateElement[];
+    renderMode?: "designer" | "print";
+    repeatInstances?: TemplateElement[][];
     selectedElementId?: string | null;
     selectedElementIds?: Set<string>;
     editable?: boolean;
@@ -34,6 +42,7 @@ type TemplatePreviewProps = {
         id: string,
         patch: Pick<TemplateElementPayload, "width" | "height">,
     ) => void;
+    renderElementContextMenu?: (element: TemplateElement) => React.ReactNode;
     onElementDelete?: (id: string) => void;
     onSelectElements?: (ids: string[]) => void;
     onCanvasDrop?: (event: React.DragEvent<HTMLDivElement>) => void;
@@ -44,6 +53,8 @@ const CANVAS_SCALE = 2.25;
 export function TemplatePreview({
     settings,
     elements,
+    renderMode = "designer",
+    repeatInstances,
     selectedElementId,
     selectedElementIds,
     editable,
@@ -51,16 +62,19 @@ export function TemplatePreview({
     onElementDragStart,
     onElementMove,
     onElementResize,
+    renderElementContextMenu,
     onElementDelete,
     onSelectElements,
     onCanvasDrop,
 }: TemplatePreviewProps) {
-    const [selectionRect, setSelectionRect] = React.useState<SelectionRect | null>(
-        null,
-    );
+    const [selectionRect, setSelectionRect] =
+        React.useState<SelectionRect | null>(null);
+    const isPrintMode = renderMode === "print";
     const canvas = TemplatePresenter.getCanvasSize(settings);
-    const canvasWidth = canvas.width * CANVAS_SCALE;
-    const canvasHeight = canvas.height * CANVAS_SCALE;
+    const unit = isPrintMode ? "mm" : "px";
+    const unitScale = isPrintMode ? 1 : CANVAS_SCALE;
+    const canvasWidth = canvas.width * unitScale;
+    const canvasHeight = canvas.height * unitScale;
     const margin = settings.margin;
     const gridSize = Math.max(settings.gridSize, 4);
     const repeatColumns = settings.repeatGrid.enabled
@@ -69,15 +83,27 @@ export function TemplatePreview({
     const repeatRows = settings.repeatGrid.enabled
         ? Math.max(settings.repeatGrid.rows, 1)
         : 1;
-    const cellWidth = canvas.width / repeatColumns;
-    const cellHeight = canvas.height / repeatRows;
+    const repeatGap = getRepeatGap(
+        settings.repeatGrid.enabled ? settings.repeatGrid.gap : 0,
+        canvas,
+        repeatColumns,
+        repeatRows,
+    );
+    const cellWidth = Math.max(
+        1,
+        (canvas.width - repeatGap * (repeatColumns - 1)) / repeatColumns,
+    );
+    const cellHeight = Math.max(
+        1,
+        (canvas.height - repeatGap * (repeatRows - 1)) / repeatRows,
+    );
     const mirroredCells = Array.from({ length: repeatRows }).flatMap((_, row) =>
         Array.from({ length: repeatColumns }).map((__, column) => ({
             row,
             column,
             isEditableCell: row === 0 && column === 0,
-            offsetX: column * cellWidth,
-            offsetY: row * cellHeight,
+            offsetX: column * (cellWidth + repeatGap),
+            offsetY: row * (cellHeight + repeatGap),
         })),
     );
     const layeredElements = elements
@@ -93,14 +119,8 @@ export function TemplatePreview({
         const bounds = event.currentTarget.getBoundingClientRect();
 
         return {
-            x:
-                (event.clientX - bounds.left) /
-                settings.zoom /
-                CANVAS_SCALE,
-            y:
-                (event.clientY - bounds.top) /
-                settings.zoom /
-                CANVAS_SCALE,
+            x: (event.clientX - bounds.left) / settings.zoom / CANVAS_SCALE,
+            y: (event.clientY - bounds.top) / settings.zoom / CANVAS_SCALE,
         };
     }
 
@@ -160,18 +180,22 @@ export function TemplatePreview({
     return (
         <div
             className={cn(
-                "relative shrink-0 overflow-hidden border bg-background shadow-sm",
+                "relative shrink-0 overflow-hidden bg-background",
+                !isPrintMode && "border shadow-sm",
+                isPrintMode && "bg-white",
                 editable && "cursor-crosshair",
             )}
             style={{
-                width: canvasWidth,
-                height: canvasHeight,
-                transform: `scale(${settings.zoom})`,
+                width: `${canvasWidth}${unit}`,
+                height: `${canvasHeight}${unit}`,
+                transform: isPrintMode
+                    ? undefined
+                    : `scale(${settings.zoom})`,
                 transformOrigin: "top left",
-                backgroundImage: settings.showGrid
+                backgroundImage: settings.showGrid && !isPrintMode
                     ? "linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)"
                     : undefined,
-                backgroundSize: settings.showGrid
+                backgroundSize: settings.showGrid && !isPrintMode
                     ? `${gridSize * CANVAS_SCALE}px ${gridSize * CANVAS_SCALE}px`
                     : undefined,
             }}
@@ -184,7 +208,7 @@ export function TemplatePreview({
             onPointerUp={handlePointerUp}
             onPointerCancel={() => setSelectionRect(null)}
         >
-            {settings.showRulers ? (
+            {settings.showRulers && !isPrintMode ? (
                 <>
                     <div className="absolute inset-x-0 top-0 z-10 h-5 border-b bg-muted/70" />
                     <div className="absolute inset-y-0 left-0 z-10 w-5 border-r bg-muted/70" />
@@ -212,19 +236,13 @@ export function TemplatePreview({
                     ))}
                 </>
             ) : null}
-            <div
-                className="pointer-events-none absolute border border-dashed border-primary/40"
-                style={{
-                    inset: `${margin.top * CANVAS_SCALE}px ${margin.right * CANVAS_SCALE}px ${margin.bottom * CANVAS_SCALE}px ${margin.left * CANVAS_SCALE}px`,
-                }}
-            />
-            <div
-                className="pointer-events-none absolute border border-dotted border-muted-foreground/40"
-                style={{
-                    inset: `${(margin.top + settings.padding) * CANVAS_SCALE}px ${(margin.right + settings.padding) * CANVAS_SCALE}px ${(margin.bottom + settings.padding) * CANVAS_SCALE}px ${(margin.left + settings.padding) * CANVAS_SCALE}px`,
-                }}
-            />
-            {settings.repeatGrid.enabled ? (
+            {!settings.repeatGrid.enabled && !isPrintMode ? (
+                <>
+                    <MarginGuide margin={margin} />
+                    <PaddingGuide margin={margin} padding={settings.padding} />
+                </>
+            ) : null}
+            {settings.repeatGrid.enabled && !isPrintMode ? (
                 <div className="pointer-events-none absolute inset-0 z-10">
                     {mirroredCells.map((cell) => (
                         <div
@@ -240,35 +258,64 @@ export function TemplatePreview({
                                 height: cellHeight * CANVAS_SCALE,
                             }}
                         >
-                            {cell.isEditableCell ? (
+                            <MarginGuide margin={margin} />
+                            <PaddingGuide
+                                margin={margin}
+                                padding={settings.padding}
+                            />
+                            {/* {cell.isEditableCell ? (
                                 <span className="absolute left-1 top-1 rounded-sm bg-primary px-1.5 py-0.5 text-[9px] font-medium text-primary-foreground">
                                     Editable
                                 </span>
-                            ) : null}
+                            ) : null} */}
                         </div>
                     ))}
                 </div>
             ) : null}
             <div className="absolute inset-0 z-20">
-                {settings.repeatGrid.enabled
-                    ? mirroredCells
-                          .filter((cell) => !cell.isEditableCell)
-                          .flatMap((cell) =>
-                              layeredElements.map((element) => (
+                {settings.repeatGrid.enabled && repeatInstances?.length
+                    ? mirroredCells.flatMap((cell, cellIndex) => {
+                          const elementsForCell = repeatInstances[cellIndex];
+                          if (!elementsForCell) return [];
+
+                          return sortElements(elementsForCell).map((element) => (
+                              <CanvasElement
+                                  key={`${element.payload.id}-${cell.row}-${cell.column}`}
+                                  element={element}
+                                  selected={false}
+                                  editable={false}
+                                  mirror={renderMode !== "print" && !cell.isEditableCell}
+                                  zoom={settings.zoom}
+                                  renderMode={renderMode}
+                                  unit={unit}
+                                  unitScale={unitScale}
+                                  offsetX={cell.offsetX}
+                                  offsetY={cell.offsetY}
+                              />
+                          ));
+                      })
+                    : settings.repeatGrid.enabled
+                      ? mirroredCells
+                            .filter((cell) => !cell.isEditableCell)
+                            .flatMap((cell) =>
+                                layeredElements.map((element) => (
                                   <CanvasElement
                                       key={`${element.payload.id}-${cell.row}-${cell.column}`}
                                       element={element}
                                       selected={false}
                                       editable={false}
-                                      mirror
+                                      mirror={renderMode !== "print"}
                                       zoom={settings.zoom}
+                                      renderMode={renderMode}
+                                      unit={unit}
+                                      unitScale={unitScale}
                                       offsetX={cell.offsetX}
                                       offsetY={cell.offsetY}
                                   />
-                              )),
-                          )
-                    : null}
-                {layeredElements.map((element) => (
+                                )),
+                            )
+                      : null}
+                {(!settings.repeatGrid.enabled || !repeatInstances?.length) && layeredElements.map((element) => (
                     <CanvasElement
                         key={element.payload.id}
                         element={element}
@@ -278,17 +325,21 @@ export function TemplatePreview({
                         }
                         editable={Boolean(editable)}
                         zoom={settings.zoom}
+                        renderMode={renderMode}
+                        unit={unit}
+                        unitScale={unitScale}
                         offsetX={0}
                         offsetY={0}
                         onSelectElement={onSelectElement}
                         onElementDragStart={onElementDragStart}
                         onElementMove={onElementMove}
                         onElementResize={onElementResize}
+                        renderElementContextMenu={renderElementContextMenu}
                         onElementDelete={onElementDelete}
                     />
                 ))}
             </div>
-            {selectionRect ? (
+            {selectionRect && !isPrintMode ? (
                 <div
                     className="pointer-events-none absolute z-[999] border border-primary bg-primary/10"
                     style={{
@@ -301,6 +352,17 @@ export function TemplatePreview({
             ) : null}
         </div>
     );
+}
+
+function sortElements(elements: TemplateElement[]) {
+    return elements
+        .map((element, index) => ({ element, index }))
+        .sort(
+            (first, second) =>
+                first.element.z_index - second.element.z_index ||
+                first.index - second.index,
+        )
+        .map(({ element }) => element);
 }
 
 type SelectionRect = {
@@ -326,18 +388,40 @@ function intersectsRect(rect: SelectionRect, payload: TemplateElementPayload) {
     );
 }
 
+function getRepeatGap(
+    gap: number,
+    canvas: { width: number; height: number },
+    columns: number,
+    rows: number,
+) {
+    const maxColumnGap =
+        columns > 1
+            ? Math.max(0, (canvas.width - columns) / (columns - 1))
+            : Infinity;
+    const maxRowGap =
+        rows > 1
+            ? Math.max(0, (canvas.height - rows) / (rows - 1))
+            : Infinity;
+
+    return Math.min(Math.max(gap, 0), maxColumnGap, maxRowGap);
+}
+
 function CanvasElement({
     element,
     selected,
     editable,
     mirror,
     zoom,
+    renderMode,
+    unit,
+    unitScale,
     offsetX,
     offsetY,
     onSelectElement,
     onElementDragStart,
     onElementMove,
     onElementResize,
+    renderElementContextMenu,
     onElementDelete,
 }: {
     element: TemplateElement;
@@ -345,6 +429,9 @@ function CanvasElement({
     editable: boolean;
     mirror?: boolean;
     zoom: number;
+    renderMode: "designer" | "print";
+    unit: "px" | "mm";
+    unitScale: number;
     offsetX: number;
     offsetY: number;
     onSelectElement?: (
@@ -359,16 +446,19 @@ function CanvasElement({
         id: string,
         patch: Pick<TemplateElementPayload, "width" | "height">,
     ) => void;
+    renderElementContextMenu?: (element: TemplateElement) => React.ReactNode;
     onElementDelete?: (id: string) => void;
 }) {
     const payload = element.payload;
     const commonStyle = {
-        left: (payload.x + offsetX) * CANVAS_SCALE,
-        top: (payload.y + offsetY) * CANVAS_SCALE,
-        width: payload.width * CANVAS_SCALE,
-        height: payload.height * CANVAS_SCALE,
+        left: `${(payload.x + offsetX) * unitScale}${unit}`,
+        top: `${(payload.y + offsetY) * unitScale}${unit}`,
+        width: `${payload.width * unitScale}${unit}`,
+        height: `${payload.height * unitScale}${unit}`,
         transform: `rotate(${payload.rotation}deg)`,
-        opacity: mirror ? (payload.opacity ?? 1) * 0.72 : payload.opacity ?? 1,
+        opacity: mirror
+            ? (payload.opacity ?? 1) * 0.72
+            : (payload.opacity ?? 1),
     };
 
     function startMove(event: React.PointerEvent<HTMLDivElement>) {
@@ -444,7 +534,7 @@ function CanvasElement({
         window.addEventListener("pointerup", stopResize);
     }
 
-    return (
+    const elementNode = (
         <div
             className={cn(
                 "absolute select-none",
@@ -458,8 +548,14 @@ function CanvasElement({
             onClick={(event) => {
                 event.stopPropagation();
             }}
+            onContextMenu={(event) => {
+                if (!editable || mirror) return;
+
+                event.stopPropagation();
+                onSelectElement?.(payload.id, event);
+            }}
         >
-            <ElementBody element={element} />
+            <ElementBody element={element} renderMode={renderMode} />
             {editable && selected ? (
                 <>
                     <button
@@ -486,10 +582,60 @@ function CanvasElement({
             ) : null}
         </div>
     );
+
+    if (!editable || mirror || !renderElementContextMenu) return elementNode;
+
+    return (
+        <ContextMenu>
+            <ContextMenuTrigger asChild>{elementNode}</ContextMenuTrigger>
+            <ContextMenuContent
+                className="w-[min(22rem,calc(100vw-2rem))] p-0"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+            >
+                {renderElementContextMenu(element)}
+            </ContextMenuContent>
+        </ContextMenu>
+    );
 }
 
-function ElementBody({ element }: { element: TemplateElement }) {
+function MarginGuide({ margin }: { margin: CanvasSettings["margin"] }) {
+    return (
+        <div
+            className="pointer-events-none absolute border border-dashed border-primary/40"
+            style={{
+                inset: `${margin.top * CANVAS_SCALE}px ${margin.right * CANVAS_SCALE}px ${margin.bottom * CANVAS_SCALE}px ${margin.left * CANVAS_SCALE}px`,
+            }}
+        />
+    );
+}
+
+function PaddingGuide({
+    margin,
+    padding,
+}: {
+    margin: CanvasSettings["margin"];
+    padding: number;
+}) {
+    return (
+        <div
+            className="pointer-events-none absolute border border-dotted border-muted-foreground/40"
+            style={{
+                inset: `${(margin.top + padding) * CANVAS_SCALE}px ${(margin.right + padding) * CANVAS_SCALE}px ${(margin.bottom + padding) * CANVAS_SCALE}px ${(margin.left + padding) * CANVAS_SCALE}px`,
+            }}
+        />
+    );
+}
+
+function ElementBody({
+    element,
+    renderMode,
+}: {
+    element: TemplateElement;
+    renderMode: "designer" | "print";
+}) {
     const payload = element.payload;
+    const isPrintMode = renderMode === "print";
 
     if (element.type === "text" || element.type === "variable") {
         return (
@@ -515,42 +661,30 @@ function ElementBody({ element }: { element: TemplateElement }) {
     }
 
     if (element.type === "barcode") {
+        const codeValue = String(
+            payload.value ?? payload.valueSource ?? payload.label ?? "",
+        );
+
         return (
             <div className="flex h-full w-full flex-col justify-end gap-1 overflow-hidden text-center text-[10px] text-black">
-                <div
-                    className="min-h-6 flex-1"
-                    style={{
-                        background:
-                            "repeating-linear-gradient(90deg, #111 0 2px, transparent 2px 4px, #111 4px 5px, transparent 5px 8px)",
-                    }}
-                />
+                <BarcodeGraphic value={codeValue} />
                 {payload.showLabel !== false ? (
-                    <span className="truncate">{payload.valueSource}</span>
+                    <span className="truncate">{codeValue}</span>
                 ) : null}
             </div>
         );
     }
 
     if (element.type === "qr") {
+        const codeValue = String(
+            payload.value ?? payload.valueSource ?? payload.label ?? "",
+        );
+
         return (
             <div className="flex h-full w-full flex-col gap-1 overflow-hidden text-center text-[10px] text-black">
-                <div className="grid min-h-0 flex-1 grid-cols-5 grid-rows-5 gap-px">
-                    {Array.from({ length: 25 }).map((_, index) => (
-                        <div
-                            key={index}
-                            className={
-                                [
-                                    0, 1, 3, 5, 6, 8, 12, 16, 18, 19, 21, 22,
-                                    24,
-                                ].includes(index)
-                                    ? "bg-black"
-                                    : "bg-transparent"
-                            }
-                        />
-                    ))}
-                </div>
+                <QrGraphic value={codeValue} />
                 {payload.showLabel ? (
-                    <span className="truncate">{payload.valueSource}</span>
+                    <span className="truncate">{codeValue}</span>
                 ) : null}
             </div>
         );
@@ -565,12 +699,12 @@ function ElementBody({ element }: { element: TemplateElement }) {
                         color: payload.borderColor ?? "#111827",
                         width:
                             payload.lineDirection === "vertical"
-                                ? payload.borderWidth ?? 2
+                                ? (payload.borderWidth ?? 2)
                                 : "100%",
                         height:
                             payload.lineDirection === "vertical"
                                 ? "100%"
-                                : payload.borderWidth ?? 2,
+                                : (payload.borderWidth ?? 2),
                     }}
                 />
             </div>
@@ -584,7 +718,7 @@ function ElementBody({ element }: { element: TemplateElement }) {
                 alt={payload.label}
                 className="h-full w-full object-contain"
             />
-        ) : (
+        ) : isPrintMode ? null : (
             <div className="flex h-full w-full items-center justify-center rounded border border-dashed bg-muted/40 text-muted-foreground">
                 <ImageIcon className="size-5" />
             </div>
@@ -631,17 +765,15 @@ function ElementBody({ element }: { element: TemplateElement }) {
     if (element.type === "container") {
         return (
             <div
-                className="flex h-full w-full items-center justify-center border border-dashed text-xs text-muted-foreground"
+                className="h-full w-full"
                 style={{
                     borderColor: payload.borderColor ?? "#6b7280",
                     backgroundColor: payload.fillColor ?? "transparent",
                     borderWidth: payload.borderWidth ?? 1,
+                    borderStyle: payload.borderStyle ?? "solid",
                     borderRadius: payload.radius ?? 8,
                 }}
-            >
-                <SquareDashedIcon className="mr-1 size-4" />
-                {payload.label}
-            </div>
+            />
         );
     }
 
@@ -655,7 +787,9 @@ function ElementBody({ element }: { element: TemplateElement }) {
                     borderWidth: payload.borderWidth ?? 1,
                     borderStyle: "solid",
                     borderRadius:
-                        element.type === "circle" ? "999px" : payload.radius ?? 0,
+                        element.type === "circle"
+                            ? "999px"
+                            : (payload.radius ?? 0),
                 }}
             />
         );
@@ -664,6 +798,82 @@ function ElementBody({ element }: { element: TemplateElement }) {
     return (
         <div className="flex h-full w-full items-center justify-center rounded border bg-muted text-muted-foreground">
             {element.type === "qr" ? <QrCodeIcon /> : <BarcodeIcon />}
+        </div>
+    );
+}
+
+function BarcodeGraphic({ value }: { value: string }) {
+    const svgRef = React.useRef<SVGSVGElement | null>(null);
+
+    React.useEffect(() => {
+        if (!svgRef.current) return;
+
+        svgRef.current.innerHTML = "";
+
+        try {
+            JsBarcode(svgRef.current, value || " ", {
+                format: "CODE128",
+                width: 2,
+                height: 64,
+                displayValue: false,
+                margin: 0,
+                background: "#ffffff",
+                lineColor: "#000000",
+            });
+        } catch {
+            svgRef.current.innerHTML = "";
+        }
+    }, [value]);
+
+    return (
+        <div className="flex min-h-6 flex-1 items-center justify-center overflow-hidden bg-white">
+            <svg
+                ref={svgRef}
+                aria-label={value}
+                className="h-full w-full"
+                preserveAspectRatio="none"
+                role="img"
+            />
+        </div>
+    );
+}
+
+function QrGraphic({ value }: { value: string }) {
+    const [src, setSrc] = React.useState<string | null>(null);
+
+    React.useEffect(() => {
+        let cancelled = false;
+
+        QRCode.toDataURL(value || " ", {
+            errorCorrectionLevel: "M",
+            margin: 1,
+            width: 192,
+            color: {
+                dark: "#000000",
+                light: "#ffffff",
+            },
+        })
+            .then((dataUrl) => {
+                if (!cancelled) setSrc(dataUrl);
+            })
+            .catch(() => {
+                if (!cancelled) setSrc(null);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [value]);
+
+    return (
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-white">
+            {src ? (
+                <img
+                    src={src}
+                    alt={value}
+                    className="aspect-square h-full max-h-full max-w-full object-contain"
+                />
+            ) : null}
         </div>
     );
 }

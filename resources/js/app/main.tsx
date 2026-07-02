@@ -8,15 +8,18 @@ import { Toaster } from "@/components/ui/toaster"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { queryClient } from "@/shared/services/queryClient"
 import { router } from "@/app/router"
+import { SystemSettingsProvider } from "@/features/settings/system-settings"
 
 createRoot(document.getElementById("app")!).render(
   <React.StrictMode>
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <RouterProvider router={router} />
-          <Toaster />
-        </TooltipProvider>
+        <SystemSettingsProvider>
+          <TooltipProvider>
+            <RouterProvider router={router} />
+            <Toaster />
+          </TooltipProvider>
+        </SystemSettingsProvider>
       </QueryClientProvider>
     </ThemeProvider>
   </React.StrictMode>,

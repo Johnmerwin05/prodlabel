@@ -1,5 +1,6 @@
 import { LoginForm } from "@/components/login-form";
 import { BarcodeIcon, CircleIcon, TagIcon } from "lucide-react";
+import { useSystemSettings } from "@/features/settings/system-settings";
 
 const metrics = [
     { label: "Today", value: "7,842" },
@@ -14,6 +15,8 @@ const statusItems = [
 ];
 
 export default function LoginPage() {
+    const settings = useSystemSettings();
+
     return (
         <main className="min-h-screen bg-muted px-4 py-8 text-foreground">
             <section className="flex min-h-[calc(100vh-4rem)] items-center justify-center">
@@ -21,12 +24,16 @@ export default function LoginPage() {
                     <div className="hidden border-r border-border bg-primary p-8 text-white lg:flex lg:min-h-155 lg:flex-col lg:justify-between">
                         <div className="flex items-center gap-3">
                             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-white/10">
-                                <TagIcon className="h-5 w-5" />
+                                {settings.favicon_url ? (
+                                    <img src={settings.favicon_url} alt="" className="size-7 object-contain" />
+                                ) : (
+                                    <TagIcon className="h-5 w-5" />
+                                )}
                             </div>
                             <div>
-                                <div className="font-semibold">ProdLabel</div>
+                                <div className="font-semibold">{settings.system_name}</div>
                                 <div className="text-sm text-white/60">
-                                    Production label workspace
+                                    {settings.system_tagline}
                                 </div>
                             </div>
                         </div>

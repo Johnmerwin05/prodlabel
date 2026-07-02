@@ -178,8 +178,6 @@ function CustomerFormFields({
                 </div>
             </section>
 
-            <Separator />
-
             <section className="space-y-4">
                 <div>
                     <h3 className="font-medium">Optional Details</h3>

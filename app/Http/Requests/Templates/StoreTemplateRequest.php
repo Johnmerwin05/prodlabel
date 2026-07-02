@@ -28,6 +28,9 @@ class StoreTemplateRequest extends FormRequest
             'elements.*.z_index' => ['nullable', 'integer', 'min:0'],
             'customer_ids' => ['array'],
             'customer_ids.*' => ['integer', 'exists:customers,id'],
+            'customer_assignments' => ['array'],
+            'customer_assignments.*.customer_id' => ['required', 'integer', 'distinct', 'exists:customers,id'],
+            'customer_assignments.*.area' => ['required', 'in:Assembly,Molding,Inspection,Injection'],
         ];
     }
 }

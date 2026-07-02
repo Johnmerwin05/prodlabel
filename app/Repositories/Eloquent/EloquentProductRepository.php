@@ -18,7 +18,6 @@ class EloquentProductRepository implements ProductRepository
         return Product::query()
             ->where('customer_id', $customerId)
             ->whereIn('id', $ids)
-            ->whereIn('status', ['draft', 'ready', 'printed'])
             ->with('customer:id,name,code')
             ->get();
     }

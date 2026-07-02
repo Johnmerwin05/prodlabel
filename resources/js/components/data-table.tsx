@@ -149,6 +149,7 @@ type DataTablePaginationProps = {
     meta?: DataTablePaginationMeta;
     selectedCount: number;
     totalRows: number;
+    summary?: React.ReactNode;
     pageSizeOptions?: number[];
     onPageChange: (page: number) => void;
     onPageSizeChange?: (pageSize: number) => void;
@@ -158,6 +159,7 @@ export function DataTablePagination({
     meta,
     selectedCount,
     totalRows,
+    summary,
     pageSizeOptions = [10, 25, 50, 100],
     onPageChange,
     onPageSizeChange,
@@ -170,7 +172,7 @@ export function DataTablePagination({
     return (
         <div className="flex min-h-18 flex-col gap-4 bg-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-muted-foreground">
-                {selectedCount} of {rowCount} row(s) selected.
+                {summary ?? `${selectedCount} of ${rowCount} row(s) selected.`}
             </div>
             <div className="flex flex-wrap items-center gap-6">
                 <div className="flex items-center gap-3">

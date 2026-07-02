@@ -9,6 +9,7 @@ use App\Http\Resources\TemplateResource;
 use App\Models\LabelTemplate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class TemplateController extends Controller
 {
@@ -32,7 +33,7 @@ class TemplateController extends Controller
                 $query->whereHas('customers', fn ($query) => $query->where('customers.id', $customerId));
             })
             ->latest()
-            ->paginate($request->integer('per_page', 25));
+            ->paginate($request->integer('per_page', 10));
 
         return TemplateResource::collection($templates);
     }
@@ -52,6 +53,26 @@ class TemplateController extends Controller
     public function update(UpdateTemplateRequest $request, LabelTemplate $template): TemplateResource
     {
         return new TemplateResource($this->persist($template, $request->validated(), $request)->load(['customers', 'elements', 'creator']));
+    }
+
+    public function uploadImage(Request $request)
+    {
+        abort_unless($request->user()?->hasPermission('template.manage'), 403);
+
+        $data = $request->validate([
+            'image' => ['required', 'image', 'max:5120'],
+        ]);
+
+        $path = $data['image']->store('template-images', 'public');
+
+        abort_unless($path, 422, 'Unable to upload template image.');
+
+        return response()->json([
+            'data' => [
+                'url' => Storage::disk('public')->url($path),
+                'path' => $path,
+            ],
+        ]);
     }
 
     public function destroy(Request $request, LabelTemplate $template)
@@ -97,7 +118,12 @@ class TemplateController extends Controller
             $copy->updated_by = $request->user()?->id;
             $copy->save();
 
-            $copy->customers()->sync($template->customers->pluck('id')->all());
+            $copy->customers()->sync($template->customers->mapWithKeys(fn ($customer) => [
+                $customer->id => [
+                    'area' => $customer->pivot?->area,
+                    'is_default' => (bool) $customer->pivot?->is_default,
+                ],
+            ])->all());
             foreach ($template->elements as $element) {
                 $copy->elements()->create($element->only(['type', 'name', 'payload', 'z_index']));
             }
@@ -134,13 +160,25 @@ class TemplateController extends Controller
             }
             $template->save();
 
-            $template->customers()->sync($data['customer_ids'] ?? []);
+            $assignments = collect($data['customer_assignments'] ?? [])
+                ->mapWithKeys(fn (array $assignment) => [
+                    $assignment['customer_id'] => ['area' => $assignment['area']],
+                ])
+                ->all();
+            $template->customers()->sync($assignments ?: ($data['customer_ids'] ?? []));
             $template->elements()->delete();
             foreach ($data['elements'] ?? [] as $index => $element) {
+                $payload = $element['payload'];
+                abort_if(
+                    isset($payload['src']) && is_string($payload['src']) && str_starts_with($payload['src'], 'data:image'),
+                    422,
+                    'Image attachments must be uploaded before saving the template.',
+                );
+
                 $template->elements()->create([
                     'type' => $element['type'],
                     'name' => $element['name'] ?? null,
-                    'payload' => $element['payload'],
+                    'payload' => $payload,
                     'z_index' => $element['z_index'] ?? $index,
                 ]);
             }

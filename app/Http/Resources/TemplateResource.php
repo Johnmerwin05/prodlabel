@@ -21,6 +21,10 @@ class TemplateResource extends JsonResource
             'current_version' => $this->current_version,
             'customers_count' => $this->whenCounted('customers'),
             'customers' => CustomerResource::collection($this->whenLoaded('customers')),
+            'customer_assignments' => $this->whenLoaded('customers', fn () => $this->customers->map(fn ($customer) => [
+                'customer_id' => $customer->id,
+                'area' => $customer->pivot?->area,
+            ])->values()),
             'elements' => TemplateElementResource::collection($this->whenLoaded('elements')),
             'created_by' => $this->whenLoaded('creator', fn () => [
                 'id' => $this->creator?->id,

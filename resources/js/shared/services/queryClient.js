@@ -1,10 +1,16 @@
-import { QueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryClient } from '@tanstack/react-query';
 
 export const queryClient = new QueryClient({
+    mutationCache: new MutationCache({
+        onSuccess: () => {
+            void queryClient.invalidateQueries({ refetchType: 'none' });
+        },
+    }),
     defaultOptions: {
         queries: {
             staleTime: 30_000,
-            refetchOnWindowFocus: false,
+            refetchOnWindowFocus: true,
+            refetchOnReconnect: true,
             retry: 1,
         },
         mutations: {

@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/sidebar"
 import { useAuthStore } from "@/features/auth/authStore"
 import { api } from "@/shared/services/api"
+import { useSystemSettings } from "@/features/settings/system-settings"
 
 export function NavUser({
   user,
@@ -57,6 +58,7 @@ export function NavUser({
   const clearSession = useAuthStore((state) => state.clearSession)
   const [isLogoutOpen, setIsLogoutOpen] = React.useState(false)
   const [isLoggingOut, setIsLoggingOut] = React.useState(false)
+  const systemSettings = useSystemSettings()
   const profile = {
     name: authUser?.name ?? user.name,
     email: authUser?.email ?? user.email,
@@ -161,7 +163,7 @@ export function NavUser({
       <AlertDialog open={isLogoutOpen} onOpenChange={setIsLogoutOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Log out of ProdLabel?</AlertDialogTitle>
+            <AlertDialogTitle>Log out of {systemSettings.system_name}?</AlertDialogTitle>
             <AlertDialogDescription>
               You will be returned to the login page and must sign in again to
               access the production console.

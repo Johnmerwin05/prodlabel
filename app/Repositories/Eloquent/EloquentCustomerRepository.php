@@ -25,7 +25,7 @@ class EloquentCustomerRepository implements CustomerRepository
                     : $query->where('status', $status);
             })
             ->latest()
-            ->paginate($filters['per_page'] ?? 25);
+            ->paginate($filters['per_page'] ?? 10);
     }
 
     public function create(array $payload): Customer

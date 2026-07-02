@@ -15,6 +15,11 @@ export type Customer = {
     email: string | null;
     status: CustomerStatus;
     remarks: string | null;
+    serial_number_prefix: string | null;
+    serial_number_format: string | null;
+    serial_number_next_sequence: number;
+    serial_number_resets_yearly: boolean;
+    serial_number_sequence_year: number | null;
     products_count?: number;
     deleted_at?: string | null;
     created_at: string;
@@ -83,7 +88,7 @@ export const defaultCustomerFilters: CustomerFilters = {
     statuses: [],
     withTrashed: false,
     page: 1,
-    perPage: 25,
+    perPage: 10,
 };
 
 export const customerColumnLabels: Record<CustomerColumnKey, string> = {
@@ -137,7 +142,6 @@ export class CustomerPresenter {
             email: blankToNull(values.email),
             status: values.status,
             remarks: blankToNull(values.remarks),
-            template_ids: [],
         };
     }
 

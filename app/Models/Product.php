@@ -14,17 +14,19 @@ class Product extends Model
     protected $fillable = [
         'product_id',
         'customer_id',
+        'area',
+        'part_number',
+        'pi_number',
         'sku',
         'name',
         'description',
-        'quantity',
+        'unit_of_measure',
+        'products_per_box',
+        'packing_quantity',
         'batch_number',
         'lot_number',
         'manufacturing_date',
         'expiration_date',
-        'status',
-        'print_count',
-        'last_printed_at',
         'created_by',
         'updated_by',
         'deleted_by',
@@ -35,7 +37,6 @@ class Product extends Model
         return [
             'manufacturing_date' => 'date',
             'expiration_date' => 'date',
-            'last_printed_at' => 'datetime',
         ];
     }
 

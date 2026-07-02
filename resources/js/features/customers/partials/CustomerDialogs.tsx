@@ -15,6 +15,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { useCan } from "@/features/auth/permissions";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -38,6 +39,9 @@ export function CustomerActions({
     onEdit: () => void;
     onConfirm: (action: ConfirmCustomerAction) => void;
 }) {
+    const canUpdate = useCan("customer.update");
+    const canDelete = useCan("customer.delete");
+    const canRestore = useCan("customer.restore");
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -52,11 +56,12 @@ export function CustomerActions({
             <DropdownMenuContent align="end" className="w-44">
                 {!customer.deleted_at ? (
                     <>
-                        <DropdownMenuItem onClick={onEdit}>
+                        <DropdownMenuItem disabled={!canUpdate} onClick={onEdit}>
                             Edit customer
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                            disabled={!canDelete}
                             variant="destructive"
                             onClick={() =>
                                 onConfirm(
@@ -73,6 +78,7 @@ export function CustomerActions({
                     </>
                 ) : (
                     <DropdownMenuItem
+                        disabled={!canRestore}
                         onClick={() =>
                             onConfirm(
                                 CustomerPresenter.buildConfirm(

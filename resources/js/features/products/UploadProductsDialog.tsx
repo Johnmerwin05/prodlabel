@@ -26,8 +26,8 @@ export function UploadProductsDialog() {
           </div>
           <div className="overflow-x-auto rounded-lg border">
             <Table>
-              <TableHeader><TableRow><TableHead>Product ID</TableHead><TableHead>SKU</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
-              <TableBody>{products.slice(0, 3).map((product) => <TableRow key={product.id}><TableCell>{product.id}</TableCell><TableCell>{product.sku}</TableCell><TableCell>{product.status}</TableCell></TableRow>)}</TableBody>
+              <TableHeader><TableRow><TableHead>Product ID</TableHead><TableHead>SKU</TableHead><TableHead>Name</TableHead></TableRow></TableHeader>
+              <TableBody>{products.slice(0, 3).map((product) => <TableRow key={product.id}><TableCell>{product.id}</TableCell><TableCell>{product.sku}</TableCell><TableCell>{product.name}</TableCell></TableRow>)}</TableBody>
             </Table>
           </div>
         </div>

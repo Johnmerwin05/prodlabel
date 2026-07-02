@@ -6,6 +6,7 @@ import { PlusIcon } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { api } from "@/shared/services/api";
+import { useCan } from "@/features/auth/permissions";
 import { useToastStore, type ToastVariant } from "@/stores/toastStore";
 
 import {
@@ -19,6 +20,7 @@ import {
     type ConfirmAction,
     type PaginatedUsers,
     type PasswordFormValues,
+    type Permission,
     type Role,
     type User,
     type UserColumnKey,
@@ -30,6 +32,7 @@ import {
 } from "./partials/user.model";
 
 export function UserListPage() {
+    const canCreate = useCan("user.create");
     const queryClient = useQueryClient();
     const notify = useToastStore((state) => state.notify);
     const [filters, setFilters] = React.useState<UserFilters>(defaultFilters);
@@ -63,6 +66,7 @@ export function UserListPage() {
     });
 
     const rolesQuery = useUserRolesQuery();
+    const permissionsQuery = useUserPermissionsQuery();
     const users = usersQuery.data?.data ?? [];
     const meta = usersQuery.data?.meta;
     const allPageRowsSelected =
@@ -148,6 +152,12 @@ export function UserListPage() {
         setFilters(defaultFilters);
     }
 
+    function applyColumnFilters(next: Partial<UserFilters>) {
+        const updated = { ...draftFilters, ...next, page: 1 };
+        setDraftFilters(updated);
+        setFilters(updated);
+    }
+
     function toggleRowSelection(userId: number, selected: boolean) {
         setSelectedRows((current) => {
             const next = new Set(current);
@@ -180,7 +190,7 @@ export function UserListPage() {
                 description="Manage team access, role assignments, account status, and secure recovery actions."
                 actions={
                     <>
-                        <Button onClick={() => setIsCreateOpen(true)}>
+                        <Button disabled={!canCreate} onClick={() => setIsCreateOpen(true)}>
                             <PlusIcon className="size-4" />
                             Create User
                         </Button>
@@ -193,7 +203,6 @@ export function UserListPage() {
             <UsersDataTable
                 users={users}
                 meta={meta}
-                roles={rolesQuery.data ?? []}
                 filters={filters}
                 draftFilters={draftFilters}
                 visibleColumns={visibleColumns}
@@ -206,6 +215,10 @@ export function UserListPage() {
                 selectedCount={selectedRows.size}
                 onDraftFiltersChange={setDraftFilters}
                 onApplyFilters={applyFilters}
+                onRoleFilterChange={(roles) => applyColumnFilters({ roles })}
+                onStatusFilterChange={(statuses) =>
+                    applyColumnFilters({ statuses })
+                }
                 onResetFilters={resetFilters}
                 onFiltersChange={setFilters}
                 onVisibleColumnsChange={setVisibleColumns}
@@ -222,6 +235,7 @@ export function UserListPage() {
                 open={isCreateOpen || Boolean(editingUser)}
                 user={editingUser}
                 roles={rolesQuery.data ?? []}
+                permissions={permissionsQuery.data ?? []}
                 isSaving={createUser.isPending || updateUser.isPending}
                 onOpenChange={(open) => {
                     if (!open) {
@@ -264,6 +278,18 @@ function useUserRolesQuery() {
         queryFn: async () => {
             const response = await api.get<{ data: Role[] }>(
                 "/users/roles/options",
+            );
+            return response.data.data;
+        },
+    });
+}
+
+function useUserPermissionsQuery() {
+    return useQuery({
+        queryKey: ["user-permission-options"],
+        queryFn: async () => {
+            const response = await api.get<{ data: Permission[] }>(
+                "/users/permissions/options",
             );
             return response.data.data;
         },

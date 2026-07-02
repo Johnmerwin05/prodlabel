@@ -2,6 +2,14 @@
 
 namespace App\Providers;
 
+use App\Models\Customer;
+use App\Models\LabelTemplate;
+use App\Models\Permission;
+use App\Models\Product;
+use App\Models\ProductPrint;
+use App\Models\Role;
+use App\Models\User;
+use App\Observers\BroadcastApplicationDataChanges;
 use App\Repositories\Contracts\CustomerRepository;
 use App\Repositories\Contracts\ProductRepository;
 use App\Repositories\Eloquent\EloquentCustomerRepository;
@@ -24,6 +32,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        foreach ([Customer::class, Product::class, LabelTemplate::class, ProductPrint::class, User::class, Role::class, Permission::class] as $model) {
+            $model::observe(BroadcastApplicationDataChanges::class);
+        }
     }
 }

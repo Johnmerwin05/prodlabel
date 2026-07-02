@@ -14,9 +14,12 @@ class RbacSeeder extends Seeder
             'customer.view', 'customer.create', 'customer.update', 'customer.delete', 'customer.restore',
             'user.view', 'user.create', 'user.update', 'user.delete', 'user.restore', 'user.lock', 'user.reset-password',
             'product.view', 'product.create', 'product.update', 'product.delete', 'product.print', 'product.reprint',
+            'printing.view', 'printing.update',
             'template.view', 'template.manage', 'template.archive',
             'report.view', 'report.export',
             'audit.view',
+            'role.view', 'role.create', 'role.update', 'role.delete',
+            'settings.manage',
         ])->mapWithKeys(fn (string $slug) => [$slug => Permission::firstOrCreate(
             ['slug' => $slug],
             ['name' => str($slug)->replace('.', ' ')->title(), 'module' => str($slug)->before('.')->toString()]
@@ -25,7 +28,7 @@ class RbacSeeder extends Seeder
         $roles = [
             'super-admin' => $permissions->keys()->all(),
             'admin' => $permissions->keys()->reject(fn ($slug) => $slug === 'audit.view')->all(),
-            'production-supervisor' => ['customer.view', 'product.view', 'product.create', 'product.update', 'product.print', 'product.reprint', 'template.view', 'report.view'],
+            'production-supervisor' => ['customer.view', 'product.view', 'product.create', 'product.update', 'product.print', 'product.reprint', 'printing.view', 'printing.update', 'template.view', 'report.view'],
             'encoder' => ['customer.view', 'product.view', 'product.create', 'product.update', 'template.view'],
             'viewer' => ['customer.view', 'product.view', 'template.view', 'report.view'],
         ];

@@ -3,7 +3,6 @@ import {
     EyeIcon,
     MoreHorizontalIcon,
     PencilIcon,
-    PrinterIcon,
     Trash2Icon,
     Undo2Icon,
 } from "lucide-react";
@@ -23,7 +22,6 @@ import {
     Dialog,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
@@ -35,6 +33,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useCan } from "@/features/auth/permissions";
 
 import { TemplatePreview } from "./TemplatePreview";
 import {
@@ -56,6 +55,8 @@ export function TemplateActions({
     onPreview: () => void;
     onConfirm: (action: ConfirmTemplateAction) => void;
 }) {
+    const canManage = useCan("template.manage");
+    const canArchive = useCan("template.archive");
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -70,7 +71,7 @@ export function TemplateActions({
             <DropdownMenuContent align="end" className="w-44">
                 {!template.deleted_at ? (
                     <>
-                        <DropdownMenuItem onClick={onEdit}>
+                        <DropdownMenuItem disabled={!canManage} onClick={onEdit}>
                             <PencilIcon className="size-4" />
                             Edit
                         </DropdownMenuItem>
@@ -78,12 +79,13 @@ export function TemplateActions({
                             <EyeIcon className="size-4" />
                             Preview
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={onDuplicate}>
+                        <DropdownMenuItem disabled={!canManage} onClick={onDuplicate}>
                             <CopyIcon className="size-4" />
                             Duplicate
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                            disabled={!canArchive}
                             variant="destructive"
                             onClick={() =>
                                 onConfirm(
@@ -100,6 +102,7 @@ export function TemplateActions({
                     </>
                 ) : (
                     <DropdownMenuItem
+                        disabled={!canManage}
                         onClick={() =>
                             onConfirm(
                                 TemplatePresenter.buildConfirm(
@@ -194,13 +197,6 @@ export function TemplatePreviewDialog({
                         </div>
                     ) : null}
                 </ScrollArea>
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => window.print()}>
-                        <PrinterIcon className="size-4" />
-                        Print Preview
-                    </Button>
-                    <Button onClick={() => window.print()}>Export to PDF</Button>
-                </DialogFooter>
             </DialogContent>
         </Dialog>
     );

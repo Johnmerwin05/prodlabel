@@ -6,7 +6,8 @@ final readonly class PrintRequestData
 {
     public function __construct(
         public int $customerId,
-        public int $templateId,
+        public string $productionDate,
+        public int $printQuantity,
         public array $productIds,
         public ?string $reprintReason = null,
     ) {
@@ -16,7 +17,8 @@ final readonly class PrintRequestData
     {
         return new self(
             customerId: (int) $data['customer_id'],
-            templateId: (int) $data['template_id'],
+            productionDate: $data['production_date'],
+            printQuantity: (int) $data['print_quantity'],
             productIds: array_map('intval', $data['product_ids']),
             reprintReason: $data['reprint_reason'] ?? null,
         );

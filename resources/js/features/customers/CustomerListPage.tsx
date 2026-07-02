@@ -6,6 +6,7 @@ import { PlusIcon } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { api } from "@/shared/services/api";
+import { useCan } from "@/features/auth/permissions";
 import { useToastStore, type ToastVariant } from "@/stores/toastStore";
 
 import { ConfirmCustomerActionDialog } from "./partials/CustomerDialogs";
@@ -25,6 +26,7 @@ import {
 } from "./partials/customer.model";
 
 export function CustomerListPage() {
+    const canCreate = useCan("customer.create");
     const queryClient = useQueryClient();
     const notify = useToastStore((state) => state.notify);
     const [filters, setFilters] =
@@ -84,7 +86,7 @@ export function CustomerListPage() {
         },
         onSuccess: () => {
             notify({ variant: "success", title: "Customer created" });
-            queryClient.invalidateQueries({ queryKey: ["customers"] });
+            invalidateCustomerQueries(queryClient);
             setIsCreateOpen(false);
         },
         onError: (error) => showApiError(error, notify),
@@ -101,7 +103,7 @@ export function CustomerListPage() {
         },
         onSuccess: () => {
             notify({ variant: "success", title: "Customer updated" });
-            queryClient.invalidateQueries({ queryKey: ["customers"] });
+            invalidateCustomerQueries(queryClient);
             setEditingCustomer(null);
         },
         onError: (error) => showApiError(error, notify),
@@ -117,7 +119,7 @@ export function CustomerListPage() {
         onSuccess: (_, action) => {
             notify({ variant: "success", title: action.successMessage });
             setConfirmAction(null);
-            queryClient.invalidateQueries({ queryKey: ["customers"] });
+            invalidateCustomerQueries(queryClient);
         },
         onError: (error) => showApiError(error, notify),
     });
@@ -129,6 +131,12 @@ export function CustomerListPage() {
     function resetFilters() {
         setDraftFilters(defaultCustomerFilters);
         setFilters(defaultCustomerFilters);
+    }
+
+    function applyColumnFilters(next: Partial<CustomerFilters>) {
+        const updated = { ...draftFilters, ...next, page: 1 };
+        setDraftFilters(updated);
+        setFilters(updated);
     }
 
     function toggleRowSelection(customerId: number, selected: boolean) {
@@ -162,7 +170,7 @@ export function CustomerListPage() {
                 title="Customer Management"
                 description="Maintain customer names, customer codes, contact details, status, and production relationships."
                 actions={
-                    <Button onClick={() => setIsCreateOpen(true)}>
+                    <Button disabled={!canCreate} onClick={() => setIsCreateOpen(true)}>
                         <PlusIcon className="size-4" />
                         Create Customer
                     </Button>
@@ -186,6 +194,9 @@ export function CustomerListPage() {
                 selectedCount={selectedRows.size}
                 onDraftFiltersChange={setDraftFilters}
                 onApplyFilters={applyFilters}
+                onStatusFilterChange={(statuses) =>
+                    applyColumnFilters({ statuses })
+                }
                 onResetFilters={resetFilters}
                 onFiltersChange={setFilters}
                 onRefresh={refreshCustomers}
@@ -251,5 +262,17 @@ function showApiError(
             error instanceof Error
                 ? error.message
                 : "The request could not be completed",
+    });
+}
+
+function invalidateCustomerQueries(queryClient: ReturnType<typeof useQueryClient>) {
+    void queryClient.invalidateQueries({ queryKey: ["customers"] });
+    void queryClient.invalidateQueries({
+        queryKey: ["product-customers"],
+        refetchType: "all",
+    });
+    void queryClient.invalidateQueries({
+        queryKey: ["template-designer-customers"],
+        refetchType: "all",
     });
 }

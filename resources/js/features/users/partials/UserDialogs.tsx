@@ -21,6 +21,7 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { useCan } from "@/features/auth/permissions";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -58,6 +59,11 @@ export function UserActions({
     onResetPassword: () => void;
     onConfirm: (action: ConfirmAction) => void;
 }) {
+    const canUpdate = useCan("user.update");
+    const canResetPassword = useCan("user.reset-password");
+    const canLock = useCan("user.lock");
+    const canDelete = useCan("user.delete");
+    const canRestore = useCan("user.restore");
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -72,14 +78,15 @@ export function UserActions({
             <DropdownMenuContent align="end" className="w-48">
                 {!user.deleted_at ? (
                     <>
-                        <DropdownMenuItem onClick={onEdit}>
+                        <DropdownMenuItem disabled={!canUpdate} onClick={onEdit}>
                             Edit user
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={onResetPassword}>
+                        <DropdownMenuItem disabled={!canResetPassword} onClick={onResetPassword}>
                             Reset password
                         </DropdownMenuItem>
                         {user.status === "locked" ? (
                             <DropdownMenuItem
+                                disabled={!canLock}
                                 onClick={() =>
                                     onConfirm(
                                         UserPresenter.buildConfirm(
@@ -94,6 +101,7 @@ export function UserActions({
                             </DropdownMenuItem>
                         ) : (
                             <DropdownMenuItem
+                                disabled={!canLock}
                                 onClick={() =>
                                     onConfirm(
                                         UserPresenter.buildConfirm(
@@ -109,6 +117,7 @@ export function UserActions({
                         )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
+                            disabled={!canDelete}
                             variant="destructive"
                             onClick={() =>
                                 onConfirm(
@@ -122,6 +131,7 @@ export function UserActions({
                     </>
                 ) : (
                     <DropdownMenuItem
+                        disabled={!canRestore}
                         onClick={() =>
                             onConfirm(
                                 UserPresenter.buildConfirm("restore", user),

@@ -25,6 +25,7 @@ class User extends Authenticatable
         'email',
         'password',
         'status',
+        'uses_custom_permissions',
         'locked_at',
         'created_by',
         'updated_by',
@@ -36,8 +37,17 @@ class User extends Authenticatable
         return $this->belongsToMany(Role::class);
     }
 
+    public function directPermissions(): BelongsToMany
+    {
+        return $this->belongsToMany(Permission::class);
+    }
+
     public function permissions(): array
     {
+        if ($this->uses_custom_permissions) {
+            return $this->directPermissions()->pluck('slug')->values()->all();
+        }
+
         return $this->roles()
             ->with('permissions:id,slug')
             ->get()
@@ -49,6 +59,10 @@ class User extends Authenticatable
 
     public function hasPermission(string $permission): bool
     {
+        if ($this->uses_custom_permissions) {
+            return $this->directPermissions()->where('slug', $permission)->exists();
+        }
+
         return $this->roles()
             ->whereHas('permissions', fn ($query) => $query->where('slug', $permission))
             ->exists();
@@ -65,6 +79,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'locked_at' => 'datetime',
+            'uses_custom_permissions' => 'boolean',
         ];
     }
 }

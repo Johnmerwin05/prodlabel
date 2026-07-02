@@ -5,6 +5,7 @@ import { type UseFormReturn, useForm } from "react-hook-form";
 
 import { SearchableSelect } from "@/components/searchable-select";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -21,16 +22,21 @@ import { cn } from "@/lib/utils";
 
 import {
     type Role,
+    type Permission,
     type User,
     type UserFormValues,
     UserPresenter,
+    permissionGroup,
+    permissionLabel,
     statusOptions,
+    toTitleCase,
 } from "./user.model";
 
 export function UserFormSheet({
     open,
     user,
     roles,
+    permissions,
     isSaving,
     onOpenChange,
     onSubmit,
@@ -38,6 +44,7 @@ export function UserFormSheet({
     open: boolean;
     user: User | null;
     roles: Role[];
+    permissions: Permission[];
     isSaving: boolean;
     onOpenChange: (open: boolean) => void;
     onSubmit: (values: UserFormValues) => void;
@@ -53,7 +60,7 @@ export function UserFormSheet({
 
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="data-[side=right]:w-[min(42vw,72rem)] data-[side=right]:sm:max-w-none">
+            <SheetContent className="data-[side=right]:w-[min(54rem,94vw)] data-[side=right]:sm:max-w-none">
                 <SheetHeader>
                     <SheetTitle>
                         {user ? "Edit User" : "Create User"}
@@ -69,7 +76,12 @@ export function UserFormSheet({
                     onSubmit={form.handleSubmit(onSubmit)}
                 >
                     <ScrollArea className="min-h-0 flex-1 px-4">
-                        <UserFormFields form={form} user={user} roles={roles} />
+                        <UserFormFields
+                            form={form}
+                            user={user}
+                            roles={roles}
+                            permissions={permissions}
+                        />
                     </ScrollArea>
                     <SheetFooter className="border-t">
                         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -102,10 +114,12 @@ function UserFormFields({
     form,
     user,
     roles,
+    permissions,
 }: {
     form: UseFormReturn<UserFormValues>;
     user: User | null;
     roles: Role[];
+    permissions: Permission[];
 }) {
     const selectedRoleId = form.watch("role_ids")[0];
     const roleSelectOptions = roles.map((role) => ({
@@ -122,6 +136,17 @@ function UserFormFields({
                   ? "Access paused"
                   : "Sign-in blocked",
     }));
+    const permissionGroups = React.useMemo(() => {
+        const grouped = new Map<string, Permission[]>();
+        permissions.forEach((permission) => {
+            const group = permissionGroup(permission);
+            grouped.set(group, [...(grouped.get(group) ?? []), permission]);
+        });
+        return Array.from(grouped.entries()).sort(([a], [b]) =>
+            a.localeCompare(b),
+        );
+    }, [permissions]);
+    const selectedPermissionIds = form.watch("permission_ids");
 
     return (
         <div className="space-y-6 pb-4 px-2">
@@ -228,12 +253,20 @@ function UserFormFields({
                             options={roleSelectOptions}
                             placeholder="Select role"
                             searchPlaceholder="Search role..."
-                            onValueChange={(roleId) =>
+                            onValueChange={(roleId) => {
+                                const selectedRole = roles.find(
+                                    (role) => role.id === Number(roleId),
+                                );
                                 form.setValue("role_ids", [Number(roleId)], {
                                     shouldDirty: true,
                                     shouldValidate: true,
-                                })
-                            }
+                                });
+                                form.setValue(
+                                    "permission_ids",
+                                    selectedRole?.permission_ids ?? [],
+                                    { shouldDirty: true },
+                                );
+                            }}
                         />
                     </Field>
                 </div>
@@ -253,6 +286,107 @@ function UserFormFields({
                         }
                     />
                 </Field>
+            </section>
+            <Separator />
+            <section className="space-y-4">
+                <div>
+                    <h3 className="font-medium">Module Access</h3>
+                    <p className="text-sm text-muted-foreground">
+                        Permissions are specific to this user. Selecting a role
+                        provides a starting set that can be customized below.
+                    </p>
+                </div>
+                <div className="overflow-hidden rounded-lg border">
+                    <div className="grid grid-cols-[180px_1fr] border-b bg-muted/40 px-4 py-3 text-sm font-medium">
+                        <span>Module</span>
+                        <span>Allowed Capabilities</span>
+                    </div>
+                    {permissionGroups.map(([group, groupPermissions]) => {
+                        const selectedCount = groupPermissions.filter(
+                            (permission) =>
+                                selectedPermissionIds.includes(permission.id),
+                        ).length;
+                        const allSelected =
+                            selectedCount === groupPermissions.length;
+
+                        return (
+                            <div
+                                key={group}
+                                className="grid grid-cols-1 gap-3 border-b px-4 py-4 last:border-b-0 sm:grid-cols-[180px_1fr]"
+                            >
+                                <label className="flex cursor-pointer items-center gap-2 font-medium">
+                                    <Checkbox
+                                        checked={
+                                            allSelected
+                                                ? true
+                                                : selectedCount > 0
+                                                  ? "indeterminate"
+                                                  : false
+                                        }
+                                        onCheckedChange={(checked) => {
+                                            const groupIds =
+                                                groupPermissions.map(
+                                                    (permission) =>
+                                                        permission.id,
+                                                );
+                                            form.setValue(
+                                                "permission_ids",
+                                                checked === true
+                                                    ? Array.from(
+                                                          new Set([
+                                                              ...selectedPermissionIds,
+                                                              ...groupIds,
+                                                          ]),
+                                                      )
+                                                    : selectedPermissionIds.filter(
+                                                          (id) =>
+                                                              !groupIds.includes(
+                                                                  id,
+                                                              ),
+                                                      ),
+                                                { shouldDirty: true },
+                                            );
+                                        }}
+                                    />
+                                    {toTitleCase(group)}
+                                </label>
+                                <div className="flex flex-wrap gap-x-5 gap-y-3">
+                                    {groupPermissions.map((permission) => (
+                                        <label
+                                            key={permission.id}
+                                            className="flex cursor-pointer items-center gap-2 text-sm"
+                                        >
+                                            <Checkbox
+                                                checked={selectedPermissionIds.includes(
+                                                    permission.id,
+                                                )}
+                                                onCheckedChange={(checked) =>
+                                                    form.setValue(
+                                                        "permission_ids",
+                                                        checked === true
+                                                            ? Array.from(
+                                                                  new Set([
+                                                                      ...selectedPermissionIds,
+                                                                      permission.id,
+                                                                  ]),
+                                                              )
+                                                            : selectedPermissionIds.filter(
+                                                                  (id) =>
+                                                                      id !==
+                                                                      permission.id,
+                                                              ),
+                                                        { shouldDirty: true },
+                                                    )
+                                                }
+                                            />
+                                            {permissionLabel(permission)}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
             </section>
         </div>
     );

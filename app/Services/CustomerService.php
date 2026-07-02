@@ -13,6 +13,7 @@ class CustomerService
     public function __construct(
         private readonly CustomerRepository $customers,
         private readonly AuditLogService $audit,
+        private readonly UserNotificationService $notifications,
     ) {
     }
 
@@ -23,8 +24,16 @@ class CustomerService
             $payload['created_by'] = $request->user()?->id;
 
             $customer = $this->customers->create($payload);
-            $customer->templates()->sync($data->templateIds);
+            if ($data->templateIds !== null) {
+                $customer->templates()->sync($data->templateIds);
+            }
             $this->audit->audit('customer.created', $customer, [], $customer->toArray(), $request);
+            $this->notifications->entityCreated(
+                'customer.view',
+                'customer',
+                $customer,
+                $request->user(),
+            );
 
             return $customer->load('templates');
         });
@@ -35,7 +44,9 @@ class CustomerService
         return DB::transaction(function () use ($customer, $data, $request): Customer {
             $old = $customer->toArray();
             $customer = $this->customers->update($customer, $data->toModelPayload($request->user()?->id));
-            $customer->templates()->sync($data->templateIds);
+            if ($data->templateIds !== null) {
+                $customer->templates()->sync($data->templateIds);
+            }
             $this->audit->audit('customer.updated', $customer, $old, $customer->toArray(), $request);
 
             return $customer->load('templates');

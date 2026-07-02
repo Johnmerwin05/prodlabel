@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api\V1;
 
 use App\Models\Role;
+use App\Models\Permission;
 use App\Models\User;
 use Database\Seeders\AdminUserSeeder;
 use Database\Seeders\RbacSeeder;
@@ -75,5 +76,32 @@ class UserManagementTest extends TestCase
             ->assertJsonPath('data.id', $userId);
 
         $this->assertNotSoftDeleted('users', ['id' => $userId]);
+    }
+
+    public function test_user_can_have_permissions_specific_to_their_account(): void
+    {
+        $this->seed([RbacSeeder::class, AdminUserSeeder::class]);
+        $admin = User::where('username', 'admin')->firstOrFail();
+        Sanctum::actingAs($admin);
+
+        $role = Role::where('slug', 'encoder')->firstOrFail();
+        $viewPermission = Permission::where('slug', 'product.view')->firstOrFail();
+
+        $response = $this->postJson('/api/v1/users', [
+            'username' => 'specific_access',
+            'name' => 'Specific Access',
+            'email' => 'specific@example.test',
+            'password' => 'password123',
+            'status' => 'active',
+            'role_ids' => [$role->id],
+            'permission_ids' => [$viewPermission->id],
+        ])->assertCreated();
+
+        $user = User::findOrFail($response->json('data.id'));
+
+        $this->assertTrue($user->uses_custom_permissions);
+        $this->assertTrue($user->hasPermission('product.view'));
+        $this->assertFalse($user->hasPermission('product.create'));
+        $this->assertFalse($user->hasPermission('template.view'));
     }
 }

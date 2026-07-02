@@ -8,6 +8,7 @@ use App\Http\Requests\Users\StoreUserRequest;
 use App\Http\Requests\Users\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\Role;
+use App\Models\Permission;
 use App\Models\User;
 use App\Services\UserService;
 use Illuminate\Http\Request;
@@ -20,7 +21,30 @@ class UserController extends Controller
         $this->authorize('viewAny', User::class);
 
         return response()->json([
-            'data' => Role::query()->select('id', 'name', 'slug')->orderBy('name')->get(),
+            'data' => Role::query()
+                ->select('id', 'name', 'slug')
+                ->with('permissions:id')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (Role $role) => [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'slug' => $role->slug,
+                    'permission_ids' => $role->permissions->pluck('id')->values(),
+                ]),
+        ]);
+    }
+
+    public function permissions(Request $request)
+    {
+        $this->authorize('viewAny', User::class);
+
+        return response()->json([
+            'data' => Permission::query()
+                ->select('id', 'name', 'slug', 'module')
+                ->orderBy('module')
+                ->orderBy('name')
+                ->get(),
         ]);
     }
 
@@ -29,7 +53,7 @@ class UserController extends Controller
         $this->authorize('viewAny', User::class);
 
         $users = User::query()
-            ->with('roles:id,name,slug')
+            ->with(['roles:id,name,slug', 'roles.permissions:id', 'directPermissions:id'])
             ->withTrashed($request->boolean('with_trashed'))
             ->when($request->filled('search'), function ($query) use ($request): void {
                 $search = $request->string('search')->toString();
@@ -64,7 +88,7 @@ class UserController extends Controller
     {
         $this->authorize('view', $user);
 
-        return new UserResource($user->load('roles'));
+        return new UserResource($user->load(['roles.permissions', 'directPermissions']));
     }
 
     public function update(UpdateUserRequest $request, User $user, UserService $service): UserResource

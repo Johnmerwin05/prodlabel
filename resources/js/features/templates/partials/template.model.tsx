@@ -7,10 +7,17 @@ import {
 } from "lucide-react";
 
 import type { Customer } from "@/features/customers/partials/customer.model";
+import type { Area } from "@/features/products/partials/product.model";
+
+export type CustomerTemplateAssignment = {
+    customer_id: number;
+    area: Area;
+};
 
 export type TemplateStatus = "draft" | "published" | "archived";
 export type PaperSize = "A3" | "A4" | "A5" | "Letter" | "Legal" | "Custom";
 export type Orientation = "portrait" | "landscape";
+export type PrintMode = "per_print" | "per_packing_quantity";
 export type TemplateElementType =
     | "text"
     | "barcode"
@@ -22,6 +29,12 @@ export type TemplateElementType =
     | "table"
     | "variable"
     | "container";
+
+export type ElementVisibilityCondition = {
+    variable: string;
+    operator: "equals" | "not_equals" | "is_empty" | "is_not_empty";
+    value?: string;
+};
 
 export type CanvasSettings = {
     paperSize: PaperSize;
@@ -44,7 +57,10 @@ export type CanvasSettings = {
         enabled: boolean;
         columns: number;
         rows: number;
+        gap: number;
     };
+    printMode: PrintMode;
+    copiesPerPrint: number;
 };
 
 export type TemplateElementPayload = {
@@ -67,12 +83,17 @@ export type TemplateElementPayload = {
     fillColor?: string;
     borderColor?: string;
     borderWidth?: number;
+    borderStyle?: "solid" | "dashed" | "dotted" | "double";
     radius?: number;
     opacity?: number;
     lineDirection?: "horizontal" | "vertical";
     columns?: string[];
     rows?: number;
     src?: string;
+    serialNumberFormat?: string;
+    serialNumberStart?: number;
+    serialNumberResetsYearly?: boolean;
+    visibilityCondition?: ElementVisibilityCondition;
 };
 
 export type TemplateElement = {
@@ -93,7 +114,8 @@ export type Template = {
     height_mm: number | null;
     settings: CanvasSettings;
     current_version: number;
-    customers: Customer[];
+    customers: Array<Pick<Customer, "id" | "name" | "code">>;
+    customer_assignments?: CustomerTemplateAssignment[];
     customers_count?: number;
     elements: TemplateElement[];
     created_by: {
@@ -149,7 +171,7 @@ export type TemplatePayload = {
     width_mm: number | null;
     height_mm: number | null;
     settings: CanvasSettings;
-    customer_ids: number[];
+    customer_assignments: CustomerTemplateAssignment[];
     elements: Array<{
         type: TemplateElementType;
         name: string | null;
@@ -172,7 +194,7 @@ export const defaultTemplateFilters: TemplateFilters = {
     customerId: "all",
     withTrashed: false,
     page: 1,
-    perPage: 25,
+    perPage: 10,
 };
 
 export const defaultCanvasSettings: CanvasSettings = {
@@ -196,7 +218,10 @@ export const defaultCanvasSettings: CanvasSettings = {
         enabled: false,
         columns: 1,
         rows: 1,
+        gap: 0,
     },
+    printMode: "per_print",
+    copiesPerPrint: 1,
 };
 
 export const templateStatusOptions: Array<{
@@ -226,8 +251,15 @@ export const placeholderOptions = [
     "{{customer_code}}",
     "{{date}}",
     "{{reference_number}}",
+    "{{part_number}}",
+    "{{pi_number}}",
     "{{product_name}}",
-    "{{quantity}}",
+    "{{unit_of_measure}}",
+    "{{products_per_box}}",
+    "{{packing_quantity}}",
+    "{{label_quantity}}",
+    "{{production_date}}",
+    "{{serial_number}}",
     "{{operator_name}}",
 ];
 
@@ -287,14 +319,20 @@ export class TemplatePresenter {
                 enabled: Boolean(merged.repeatGrid.enabled),
                 columns: clampWholeNumber(merged.repeatGrid.columns, 1, 24),
                 rows: clampWholeNumber(merged.repeatGrid.rows, 1, 24),
+                gap: clampNumber(merged.repeatGrid.gap, 0, 100),
             },
+            printMode:
+                merged.printMode === "per_packing_quantity"
+                    ? "per_packing_quantity"
+                    : "per_print",
+            copiesPerPrint: clampWholeNumber(merged.copiesPerPrint, 1, 1000),
         } satisfies CanvasSettings;
     }
 
     static toPayload(
         templateName: string,
         status: TemplateStatus,
-        customerIds: number[],
+        customerAssignments: CustomerTemplateAssignment[],
         settings: CanvasSettings,
         elements: TemplateElement[],
     ): TemplatePayload {
@@ -307,7 +345,7 @@ export class TemplatePresenter {
             height_mm:
                 settings.paperSize === "Custom" ? settings.heightMm : null,
             settings,
-            customer_ids: customerIds,
+            customer_assignments: customerAssignments,
             elements: elements.map((element, index) => ({
                 type: element.type,
                 name: element.name,
@@ -412,6 +450,14 @@ export const templateMetricCards = [
 
 function clampWholeNumber(value: unknown, min: number, max: number) {
     const numeric = Math.round(Number(value));
+
+    if (!Number.isFinite(numeric)) return min;
+
+    return Math.min(max, Math.max(min, numeric));
+}
+
+function clampNumber(value: unknown, min: number, max: number) {
+    const numeric = Number(value);
 
     if (!Number.isFinite(numeric)) return min;
 

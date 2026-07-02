@@ -13,7 +13,7 @@ final readonly class CustomerData
         public ?string $email,
         public string $status,
         public ?string $remarks,
-        public array $templateIds = [],
+        public ?array $templateIds = null,
     ) {
     }
 
@@ -28,7 +28,7 @@ final readonly class CustomerData
             email: $data['email'] ?? null,
             status: $data['status'] ?? 'active',
             remarks: $data['remarks'] ?? null,
-            templateIds: $data['template_ids'] ?? [],
+            templateIds: array_key_exists('template_ids', $data) ? $data['template_ids'] : null,
         );
     }
 

@@ -1,22 +1,17 @@
 import * as React from "react";
-import { ListFilterIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
+import { RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { DataTablePagination, DataTableSurface } from "@/components/data-table";
+import {
+    DataTableHeaderFilter,
+    DataTableHeaderMultiFilter,
+} from "@/components/data-table-header-filter";
 import { EmptyState } from "@/components/empty-state";
-import { type MultiSelectOption, MultiSelect } from "@/components/multi-select";
 import { StatusBadge } from "@/components/status-badge";
-import type { Customer } from "@/features/customers/partials/customer.model";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useCan } from "@/features/auth/permissions";
 import { Input } from "@/components/ui/input";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     Table,
@@ -40,7 +35,6 @@ import {
 type TemplatesDataTableProps = {
     templates: Template[];
     meta: PaginatedTemplates["meta"] | undefined;
-    customers: Customer[];
     filters: TemplateFilters;
     draftFilters: TemplateFilters;
     isLoading: boolean;
@@ -48,6 +42,8 @@ type TemplatesDataTableProps = {
     isFetching: boolean;
     onDraftFiltersChange: React.Dispatch<React.SetStateAction<TemplateFilters>>;
     onApplyFilters: () => void;
+    onCustomerFilterChange: (customerId: string) => void;
+    onStatusFilterChange: (statuses: TemplateFilters["statuses"]) => void;
     onResetFilters: () => void;
     onFiltersChange: React.Dispatch<React.SetStateAction<TemplateFilters>>;
     onRefresh: () => void | Promise<unknown>;
@@ -61,7 +57,6 @@ type TemplatesDataTableProps = {
 export function TemplatesDataTable({
     templates,
     meta,
-    customers,
     filters,
     draftFilters,
     isLoading,
@@ -69,6 +64,8 @@ export function TemplatesDataTable({
     isFetching,
     onDraftFiltersChange,
     onApplyFilters,
+    onCustomerFilterChange,
+    onStatusFilterChange,
     onResetFilters,
     onFiltersChange,
     onRefresh,
@@ -78,6 +75,7 @@ export function TemplatesDataTable({
     onDuplicate,
     onConfirm,
 }: TemplatesDataTableProps) {
+    const canManage = useCan("template.manage");
     const isFiltered =
         draftFilters.search ||
         draftFilters.statuses.length > 0 ||
@@ -88,7 +86,6 @@ export function TemplatesDataTable({
         <div className="space-y-0">
             <div className="mb-4">
                 <DataTableToolbar
-                    customers={customers}
                     draftFilters={draftFilters}
                     isFiltered={Boolean(isFiltered)}
                     isFetching={isFetching}
@@ -113,7 +110,7 @@ export function TemplatesDataTable({
                         title="No templates found"
                         description="Create a template or adjust your filters to find archived records."
                         action={
-                            <Button onClick={onCreate}>Create Template</Button>
+                            <Button disabled={!canManage} onClick={onCreate}>Create Template</Button>
                         }
                     />
                 ) : (
@@ -123,11 +120,55 @@ export function TemplatesDataTable({
                                 <TableHead className="min-w-70">
                                     Template Name
                                 </TableHead>
-                                <TableHead>Customer</TableHead>
+                                <TableHead>
+                                    <DataTableHeaderFilter
+                                        label="Customer"
+                                        allLabel="All customers"
+                                        searchable
+                                        batchSize={50}
+                                        value={draftFilters.customerId}
+                                        options={Array.from(
+                                            new Map(
+                                                templates.flatMap((template) =>
+                                                    template.customers.map(
+                                                        (customer) => [
+                                                            String(customer.id),
+                                                            {
+                                                                label: customer.name,
+                                                                value: String(customer.id),
+                                                                description: customer.code,
+                                                            },
+                                                        ] as const,
+                                                    ),
+                                                ),
+                                            ).values(),
+                                        )}
+                                        onValueChange={onCustomerFilterChange}
+                                    />
+                                </TableHead>
                                 <TableHead>Paper Size</TableHead>
                                 <TableHead>Created By</TableHead>
                                 <TableHead>Date Created</TableHead>
-                                <TableHead>Status</TableHead>
+                                <TableHead>
+                                    <DataTableHeaderMultiFilter
+                                        label="Status"
+                                        values={draftFilters.statuses}
+                                        options={templateStatusOptions
+                                            .filter(({ value }) =>
+                                                templates.some((template) =>
+                                                    template.deleted_at
+                                                        ? value === "archived"
+                                                        : template.status === value,
+                                                ),
+                                            )
+                                            .map(({ label, value }) => ({ label, value }))}
+                                        onValuesChange={(statuses) =>
+                                            onStatusFilterChange(
+                                                statuses as TemplateFilters["statuses"],
+                                            )
+                                        }
+                                    />
+                                </TableHead>
                                 <TableHead className="w-12" />
                             </TableRow>
                         </TableHeader>
@@ -240,7 +281,6 @@ export function TemplatesDataTable({
 }
 
 function DataTableToolbar({
-    customers,
     draftFilters,
     isFiltered,
     isFetching,
@@ -249,7 +289,6 @@ function DataTableToolbar({
     onResetFilters,
     onRefresh,
 }: {
-    customers: Customer[];
     draftFilters: TemplateFilters;
     isFiltered: boolean;
     isFetching: boolean;
@@ -293,41 +332,6 @@ function DataTableToolbar({
                     />
                 </div>
                 <Button type="submit">Apply</Button>
-                <DataTableFacetedFilter
-                    title="Status"
-                    options={templateStatusOptions}
-                    values={draftFilters.statuses}
-                    onValuesChange={(statuses) =>
-                        onDraftFiltersChange((current) => ({
-                            ...current,
-                            statuses: statuses as TemplateFilters["statuses"],
-                        }))
-                    }
-                />
-                <Select
-                    value={draftFilters.customerId}
-                    onValueChange={(customerId) =>
-                        onDraftFiltersChange((current) => ({
-                            ...current,
-                            customerId,
-                        }))
-                    }
-                >
-                    <SelectTrigger className="w-full sm:w-56">
-                        <SelectValue placeholder="Customer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">All customers</SelectItem>
-                        {customers.map((customer) => (
-                            <SelectItem
-                                key={customer.id}
-                                value={String(customer.id)}
-                            >
-                                {customer.name}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
                 {isFiltered ? (
                     <Button
                         type="button"
@@ -370,73 +374,6 @@ function DataTableToolbar({
                 </Button>
             </div>
         </form>
-    );
-}
-
-function DataTableFacetedFilter({
-    title,
-    options,
-    values,
-    onValuesChange,
-}: {
-    title: string;
-    options: MultiSelectOption[];
-    values: string[];
-    onValuesChange: (values: string[]) => void;
-}) {
-    return (
-        <MultiSelect
-            options={options}
-            values={values}
-            searchPlaceholder={title}
-            clearLabel="Clear filters"
-            onValuesChange={onValuesChange}
-        >
-            {({ selectedValues, selectedOptions }) => (
-                <Button
-                    type="button"
-                    variant="outline"
-                    className="border-dashed"
-                >
-                    <ListFilterIcon className="size-4" />
-                    {title}
-                    {selectedValues.size > 0 ? (
-                        <>
-                            <Separator
-                                orientation="vertical"
-                                className="mx-1 h-4"
-                            />
-                            <Badge
-                                variant="secondary"
-                                className="rounded-sm px-1 font-normal lg:hidden"
-                            >
-                                {selectedValues.size}
-                            </Badge>
-                            <div className="hidden gap-1 lg:flex">
-                                {selectedValues.size > 2 ? (
-                                    <Badge
-                                        variant="secondary"
-                                        className="rounded-sm px-1 font-normal"
-                                    >
-                                        {selectedValues.size} selected
-                                    </Badge>
-                                ) : (
-                                    selectedOptions.map((option) => (
-                                        <Badge
-                                            key={option.value}
-                                            variant="secondary"
-                                            className="rounded-sm px-1 font-normal"
-                                        >
-                                            {option.label}
-                                        </Badge>
-                                    ))
-                                )}
-                            </div>
-                        </>
-                    ) : null}
-                </Button>
-            )}
-        </MultiSelect>
     );
 }
 

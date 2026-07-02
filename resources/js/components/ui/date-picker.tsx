@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {
     addMonths,
     format,
@@ -11,20 +10,14 @@ import {
 import { CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { Button, buttonVariants } from "@/Components/ui/button";
-import { Calendar } from "@/Components/ui/calendar";
+import { SearchableSelect } from "@/components/searchable-select";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
     Popover,
     PopoverContent,
     PopoverTrigger,
-} from "@/Components/ui/popover";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/Components/ui/select";
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 const MONTHS = [
@@ -42,27 +35,47 @@ const MONTHS = [
     "December",
 ];
 
+type DatePickerProps = {
+    value?: string;
+    onChange: (value: string) => void;
+    placeholder?: string;
+    className?: string;
+};
+
 export function DatePicker({
     value,
     onChange,
     placeholder = "Pick a date",
     className,
-}) {
+}: DatePickerProps) {
     const selectedDate = value ? parseISO(value) : undefined;
     const baseDate = selectedDate ?? new Date();
+    const [open, setOpen] = useState(false);
     const [currentMonth, setCurrentMonth] = useState(baseDate);
 
-    const years = useMemo(() => {
+    const monthOptions = useMemo(
+        () =>
+            MONTHS.map((month, index) => ({
+                label: month,
+                value: String(index),
+            })),
+        [],
+    );
+    const yearOptions = useMemo(() => {
         const currentYear = new Date().getFullYear();
-        return Array.from(
-            { length: 101 },
-            (_, index) => currentYear - 80 + index,
-        );
+        return Array.from({ length: 101 }, (_, index) => {
+            const year = currentYear - 80 + index;
+
+            return {
+                label: String(year),
+                value: String(year),
+            };
+        });
     }, []);
 
     useEffect(() => {
         setCurrentMonth(baseDate);
-    }, [value]);
+    }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const goToPreviousMonth = () => {
         setCurrentMonth((current) => addMonths(current, -1));
@@ -73,113 +86,104 @@ export function DatePicker({
     };
 
     return (
-        <Popover>
+        <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <Button
                     type="button"
                     variant="outline"
                     className={cn(
-                        "h-11 w-full justify-between rounded-2xl border border-slate-300/70 bg-slate-800 px-3 text-left font-normal text-white shadow-sm hover:bg-slate-700 hover:text-slate-300 dark:border-white/10 dark:bg-slate-950/50 dark:text-white dark:hover:bg-white/10 dark:hover:text-white",
-                        !value && "text-white/70 dark:text-white/70",
+                        "h-10 w-full justify-between rounded-lg px-3 text-left font-normal",
+                        !value && "text-muted-foreground",
                         className,
                     )}
                 >
                     <span className="truncate">
-                        {value ? format(selectedDate, "PPP") : placeholder}
+                        {selectedDate
+                            ? format(selectedDate, "PPP")
+                            : placeholder}
                     </span>
-                    <CalendarIcon className="w-4 h-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                    <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
                 </Button>
             </PopoverTrigger>
 
             <PopoverContent
                 align="start"
-                sideOffset={10}
-                className="w-auto min-w-76 overflow-hidden rounded-[1.25rem] border border-slate-200/70 bg-white/95 p-0 text-slate-800 shadow-2xl shadow-slate-300/30 dark:border-white/10 dark:bg-slate-950/95 dark:text-slate-100 dark:shadow-black/40"
+                sideOffset={6}
+                className="w-[20rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-popover p-0 text-popover-foreground shadow-lg"
             >
-                <div className="p-3 border-b border-slate-200/70 dark:border-white/10">
+                <div className="border-b bg-muted/20 p-3">
                     <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-                        <button
+                        <Button
                             type="button"
+                            variant="outline"
+                            size="icon-sm"
                             onClick={goToPreviousMonth}
-                            className={cn(
-                                buttonVariants({ variant: "outline" }),
-                                "h-9 w-9 rounded-xl border-slate-300/70 bg-slate-800 p-0 text-slate-300 hover:bg-slate-700 hover:text-white dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 dark:hover:text-white",
-                            )}
+                            aria-label="Previous month"
                         >
-                            <ChevronLeft className="w-4 h-4" />
-                        </button>
+                            <ChevronLeft className="size-4" />
+                        </Button>
 
                         <div className="grid grid-cols-2 gap-2">
-                            <Select
+                            <SearchableSelect
                                 value={String(getMonth(currentMonth))}
+                                options={monthOptions}
+                                placeholder="Month"
+                                searchPlaceholder="Search month..."
+                                contentClassName="z-[60] w-full"
                                 onValueChange={(monthValue) =>
                                     setCurrentMonth((current) =>
                                         setMonth(current, Number(monthValue)),
                                     )
                                 }
-                            >
-                                <SelectTrigger className="h-10 rounded-xl border-slate-200/70 bg-white/90 text-slate-800 dark:border-white/10 dark:bg-white/5 dark:text-slate-100">
-                                    <SelectValue placeholder="Month" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {MONTHS.map((month, index) => (
-                                        <SelectItem
-                                            key={month}
-                                            value={String(index)}
-                                        >
-                                            {month}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            />
 
-                            <Select
+                            <SearchableSelect
                                 value={String(getYear(currentMonth))}
+                                options={yearOptions}
+                                placeholder="Year"
+                                searchPlaceholder="Search year..."
+                                contentClassName="z-[60] w-full"
                                 onValueChange={(yearValue) =>
                                     setCurrentMonth((current) =>
                                         setYear(current, Number(yearValue)),
                                     )
                                 }
-                            >
-                                <SelectTrigger className="h-10 rounded-xl border-slate-200/70 bg-white/90 text-slate-800 dark:border-white/10 dark:bg-white/5 dark:text-slate-100">
-                                    <SelectValue placeholder="Year" />
-                                </SelectTrigger>
-                                <SelectContent className="max-h-72">
-                                    {years.map((year) => (
-                                        <SelectItem
-                                            key={year}
-                                            value={String(year)}
-                                        >
-                                            {year}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            />
                         </div>
 
-                        <button
+                        <Button
                             type="button"
+                            variant="outline"
+                            size="icon-sm"
                             onClick={goToNextMonth}
-                            className={cn(
-                                buttonVariants({ variant: "outline" }),
-                                "h-9 w-9 rounded-xl border-slate-300/70 bg-slate-800 p-0 text-slate-300 hover:bg-slate-700 hover:text-white dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10 dark:hover:text-white",
-                            )}
+                            aria-label="Next month"
                         >
-                            <ChevronRight className="w-4 h-4" />
-                        </button>
+                            <ChevronRight className="size-4" />
+                        </Button>
                     </div>
                 </div>
 
                 <Calendar
-                    className="rounded-[1.25rem] bg-white/95 text-slate-800 dark:bg-slate-950/95 dark:text-slate-100"
+                    className="mx-auto bg-transparent p-3 [--cell-size:2.5rem]"
+                    classNames={{
+                        day: "flex size-10 items-center justify-center p-0",
+                        month: "flex w-full max-w-[18.5rem] flex-col gap-3",
+                        month_caption: "hidden",
+                        months: "flex justify-center",
+                        nav: "hidden",
+                        week: "mt-1 grid w-full grid-cols-7",
+                        weekday:
+                            "flex h-8 items-center justify-center text-sm font-normal text-muted-foreground",
+                        weekdays: "grid w-full grid-cols-7",
+                    }}
                     mode="single"
                     month={currentMonth}
                     onMonthChange={setCurrentMonth}
                     selected={selectedDate}
-                    onSelect={(date) =>
-                        onChange(date ? format(date, "yyyy-MM-dd") : "")
-                    }
-                    initialFocus
+                    onSelect={(date) => {
+                        onChange(date ? format(date, "yyyy-MM-dd") : "");
+                        setOpen(false);
+                    }}
                 />
             </PopoverContent>
         </Popover>

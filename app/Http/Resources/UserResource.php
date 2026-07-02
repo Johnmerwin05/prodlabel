@@ -24,6 +24,10 @@ class UserResource extends JsonResource
                 'slug' => $role->slug,
             ])->values()),
             'permissions' => $this->whenLoaded('roles', fn () => $this->permissions()),
+            'permission_ids' => $this->whenLoaded('roles', fn () => $this->uses_custom_permissions
+                ? $this->directPermissions->pluck('id')->values()
+                : $this->roles->flatMap(fn ($role) => $role->permissions->pluck('id'))->unique()->values()),
+            'uses_custom_permissions' => $this->uses_custom_permissions,
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

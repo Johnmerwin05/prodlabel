@@ -1,15 +1,15 @@
 import * as React from "react";
-import { ListFilterIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
+import { RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { DataTablePagination, DataTableSurface } from "@/components/data-table";
+import { DataTableHeaderMultiFilter } from "@/components/data-table-header-filter";
 import { EmptyState } from "@/components/empty-state";
-import { type MultiSelectOption, MultiSelect } from "@/components/multi-select";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useCan } from "@/features/auth/permissions";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     Table,
@@ -36,7 +36,6 @@ import {
 type UsersDataTableProps = {
     users: User[];
     meta: PaginatedUsers["meta"] | undefined;
-    roles: Role[];
     filters: UserFilters;
     draftFilters: UserFilters;
     visibleColumns: Record<UserColumnKey, boolean>;
@@ -49,6 +48,8 @@ type UsersDataTableProps = {
     selectedCount: number;
     onDraftFiltersChange: React.Dispatch<React.SetStateAction<UserFilters>>;
     onApplyFilters: () => void;
+    onRoleFilterChange: (roles: string[]) => void;
+    onStatusFilterChange: (statuses: UserFilters["statuses"]) => void;
     onResetFilters: () => void;
     onFiltersChange: React.Dispatch<React.SetStateAction<UserFilters>>;
     onVisibleColumnsChange: React.Dispatch<
@@ -66,7 +67,6 @@ type UsersDataTableProps = {
 export function UsersDataTable({
     users,
     meta,
-    roles,
     filters,
     draftFilters,
     visibleColumns,
@@ -79,6 +79,8 @@ export function UsersDataTable({
     selectedCount,
     onDraftFiltersChange,
     onApplyFilters,
+    onRoleFilterChange,
+    onStatusFilterChange,
     onResetFilters,
     onFiltersChange,
     onVisibleColumnsChange,
@@ -90,10 +92,17 @@ export function UsersDataTable({
     onResetPassword,
     onConfirm,
 }: UsersDataTableProps) {
-    const roleOptions = roles.map((role) => ({
-        label: role.name,
-        value: role.slug,
-    }));
+    const canCreate = useCan("user.create");
+    const roleOptions = Array.from(
+        new Map(
+            users.flatMap((user) =>
+                user.roles.map((role) => [
+                    role.slug,
+                    { label: role.name, value: role.slug },
+                ] as const),
+            ),
+        ).values(),
+    );
     const isFiltered =
         draftFilters.search ||
         draftFilters.roles.length > 0 ||
@@ -103,7 +112,6 @@ export function UsersDataTable({
         <div className="space-y-0">
             <div className="mb-4">
                 <DataTableToolbar
-                    roles={roleOptions}
                     draftFilters={draftFilters}
                     visibleColumns={visibleColumns}
                     isFiltered={Boolean(isFiltered)}
@@ -130,7 +138,7 @@ export function UsersDataTable({
                         title="No users found"
                         description="Create a user or adjust your filters to find archived accounts."
                         action={
-                            <Button onClick={onCreate}>
+                            <Button disabled={!canCreate} onClick={onCreate}>
                                 Create User
                             </Button>
                         }
@@ -161,10 +169,35 @@ export function UsersDataTable({
                                     <TableHead>Username</TableHead>
                                 ) : null}
                                 {visibleColumns.roles ? (
-                                    <TableHead>Roles</TableHead>
+                                    <TableHead>
+                                        <DataTableHeaderMultiFilter
+                                            label="Roles"
+                                            searchable
+                                            values={draftFilters.roles}
+                                            options={roleOptions}
+                                            onValuesChange={onRoleFilterChange}
+                                        />
+                                    </TableHead>
                                 ) : null}
                                 {visibleColumns.status ? (
-                                    <TableHead>Status</TableHead>
+                                    <TableHead>
+                                        <DataTableHeaderMultiFilter
+                                            label="Status"
+                                            values={draftFilters.statuses}
+                                            options={statusOptions
+                                                .filter(({ value }) =>
+                                                    users.some(
+                                                        (user) => user.status === value,
+                                                    ),
+                                                )
+                                                .map(({ label, value }) => ({ label, value }))}
+                                            onValuesChange={(statuses) =>
+                                                onStatusFilterChange(
+                                                    statuses as UserFilters["statuses"],
+                                                )
+                                            }
+                                        />
+                                    </TableHead>
                                 ) : null}
                                 {visibleColumns.updated_at ? (
                                     <TableHead>Updated</TableHead>
@@ -309,7 +342,6 @@ export function UsersDataTable({
 }
 
 function DataTableToolbar({
-    roles,
     draftFilters,
     visibleColumns,
     isFiltered,
@@ -320,7 +352,6 @@ function DataTableToolbar({
     onVisibleColumnsChange,
     onRefresh,
 }: {
-    roles: MultiSelectOption[];
     draftFilters: UserFilters;
     visibleColumns: Record<UserColumnKey, boolean>;
     isFiltered: boolean;
@@ -370,28 +401,6 @@ function DataTableToolbar({
                 <Button type="submit">
                     Apply
                 </Button>
-                <DataTableFacetedFilter
-                    title="Status"
-                    options={statusOptions}
-                    values={draftFilters.statuses}
-                    onValuesChange={(statuses) =>
-                        onDraftFiltersChange((current) => ({
-                            ...current,
-                            statuses: statuses as Array<User["status"]>,
-                        }))
-                    }
-                />
-                <DataTableFacetedFilter
-                    title="Role"
-                    options={roles}
-                    values={draftFilters.roles}
-                    onValuesChange={(nextRoles) =>
-                        onDraftFiltersChange((current) => ({
-                            ...current,
-                            roles: nextRoles,
-                        }))
-                    }
-                />
                 {isFiltered ? (
                     <Button
                         type="button"
@@ -420,73 +429,6 @@ function DataTableToolbar({
                 </Button>
             </div>
         </form>
-    );
-}
-
-function DataTableFacetedFilter({
-    title,
-    options,
-    values,
-    onValuesChange,
-}: {
-    title: string;
-    options: MultiSelectOption[];
-    values: string[];
-    onValuesChange: (values: string[]) => void;
-}) {
-    return (
-        <MultiSelect
-            options={options}
-            values={values}
-            searchPlaceholder={title}
-            clearLabel="Clear filters"
-            onValuesChange={onValuesChange}
-        >
-            {({ selectedValues, selectedOptions }) => (
-                <Button
-                    type="button"
-                    variant="outline"
-                    className="border-dashed"
-                >
-                    <ListFilterIcon className="size-4" />
-                    {title}
-                    {selectedValues.size > 0 ? (
-                        <>
-                            <Separator
-                                orientation="vertical"
-                                className="mx-1 h-4"
-                            />
-                            <Badge
-                                variant="secondary"
-                                className="rounded-sm px-1 font-normal lg:hidden"
-                            >
-                                {selectedValues.size}
-                            </Badge>
-                            <div className="hidden gap-1 lg:flex">
-                                {selectedValues.size > 2 ? (
-                                    <Badge
-                                        variant="secondary"
-                                        className="rounded-sm px-1 font-normal"
-                                    >
-                                        {selectedValues.size} selected
-                                    </Badge>
-                                ) : (
-                                    selectedOptions.map((option) => (
-                                        <Badge
-                                            key={option.value}
-                                            variant="secondary"
-                                            className="rounded-sm px-1 font-normal"
-                                        >
-                                            {option.label}
-                                        </Badge>
-                                    ))
-                                )}
-                            </div>
-                        </>
-                    ) : null}
-                </Button>
-            )}
-        </MultiSelect>
     );
 }
 

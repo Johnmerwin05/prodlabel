@@ -17,5 +17,6 @@ class DatabaseSeeder extends Seeder
     {
         $this->call(RbacSeeder::class);
         $this->call(AdminUserSeeder::class);
+        //$this->call(DemoVolumeSeeder::class);
     }
 }

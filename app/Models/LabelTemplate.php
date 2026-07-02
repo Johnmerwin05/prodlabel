@@ -40,7 +40,7 @@ class LabelTemplate extends Model
     public function customers(): BelongsToMany
     {
         return $this->belongsToMany(Customer::class, 'customer_templates', 'template_id', 'customer_id')
-            ->withPivot('is_default')
+            ->withPivot('is_default', 'area')
             ->withTimestamps();
     }
 

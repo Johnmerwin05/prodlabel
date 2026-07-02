@@ -11,6 +11,8 @@ class AuditLogService
 {
     public function audit(string $event, Model $model, array $oldValues = [], array $newValues = [], ?Request $request = null): void
     {
+        $request?->attributes->set('audit_recorded', true);
+
         AuditLog::create([
             'event' => $event,
             'auditable_type' => $model::class,
@@ -25,6 +27,8 @@ class AuditLogService
 
     public function activity(string $module, string $activity, array $properties = [], ?Request $request = null): void
     {
+        $request?->attributes->set('audit_recorded', true);
+
         ActivityLog::create([
             'user_id' => $request?->user()?->id,
             'module' => $module,

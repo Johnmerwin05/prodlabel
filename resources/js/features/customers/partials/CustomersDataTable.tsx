@@ -1,15 +1,14 @@
 import * as React from "react";
-import { ListFilterIcon, RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
+import { RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
 
 import { DataTablePagination, DataTableSurface } from "@/components/data-table";
+import { DataTableHeaderMultiFilter } from "@/components/data-table-header-filter";
 import { EmptyState } from "@/components/empty-state";
-import { type MultiSelectOption, MultiSelect } from "@/components/multi-select";
 import { StatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useCan } from "@/features/auth/permissions";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
     Table,
@@ -46,6 +45,7 @@ type CustomersDataTableProps = {
     selectedCount: number;
     onDraftFiltersChange: React.Dispatch<React.SetStateAction<CustomerFilters>>;
     onApplyFilters: () => void;
+    onStatusFilterChange: (statuses: CustomerFilters["statuses"]) => void;
     onResetFilters: () => void;
     onFiltersChange: React.Dispatch<React.SetStateAction<CustomerFilters>>;
     onRefresh: () => void | Promise<unknown>;
@@ -71,6 +71,7 @@ export function CustomersDataTable({
     selectedCount,
     onDraftFiltersChange,
     onApplyFilters,
+    onStatusFilterChange,
     onResetFilters,
     onFiltersChange,
     onRefresh,
@@ -80,6 +81,7 @@ export function CustomersDataTable({
     onEdit,
     onConfirm,
 }: CustomersDataTableProps) {
+    const canCreate = useCan("customer.create");
     const isFiltered =
         draftFilters.search ||
         draftFilters.statuses.length > 0 ||
@@ -113,7 +115,7 @@ export function CustomersDataTable({
                         title="No customers found"
                         description="Create a customer or adjust your filters to find archived records."
                         action={
-                            <Button onClick={onCreate}>Create Customer</Button>
+                            <Button disabled={!canCreate} onClick={onCreate}>Create Customer</Button>
                         }
                     />
                 ) : (
@@ -145,7 +147,29 @@ export function CustomersDataTable({
                                     <TableHead>Address</TableHead>
                                 ) : null}
                                 {visibleColumns.status ? (
-                                    <TableHead>Status</TableHead>
+                                    <TableHead>
+                                        <DataTableHeaderMultiFilter
+                                            label="Status"
+                                            values={draftFilters.statuses}
+                                            options={customerStatusOptions
+                                                .filter(({ value }) =>
+                                                    customers.some(
+                                                        (customer) =>
+                                                            !customer.deleted_at &&
+                                                            customer.status === value,
+                                                    ),
+                                                )
+                                                .map(({ label, value }) => ({
+                                                    label,
+                                                    value,
+                                                }))}
+                                            onValuesChange={(statuses) =>
+                                                onStatusFilterChange(
+                                                    statuses as CustomerFilters["statuses"],
+                                                )
+                                            }
+                                        />
+                                    </TableHead>
                                 ) : null}
                                 {visibleColumns.updated_at ? (
                                     <TableHead>Updated</TableHead>
@@ -212,26 +236,13 @@ export function CustomersDataTable({
                                     ) : null}
                                     {visibleColumns.status ? (
                                         <TableCell>
-                                            <div className="flex flex-col items-start gap-1">
-                                                <StatusBadge
-                                                    status={
-                                                        customer.deleted_at
-                                                            ? "deleted"
-                                                            : customer.status
-                                                    }
-                                                />
-                                                {customer.products_count ? (
-                                                    <Badge
-                                                        variant="secondary"
-                                                        className="rounded-sm"
-                                                    >
-                                                        {
-                                                            customer.products_count
-                                                        }{" "}
-                                                        products
-                                                    </Badge>
-                                                ) : null}
-                                            </div>
+                                            <StatusBadge
+                                                status={
+                                                    customer.deleted_at
+                                                        ? "deleted"
+                                                        : customer.status
+                                                }
+                                            />
                                         </TableCell>
                                     ) : null}
                                     {visibleColumns.updated_at ? (
@@ -327,17 +338,6 @@ function DataTableToolbar({
                     />
                 </div>
                 <Button type="submit">Apply</Button>
-                <DataTableFacetedFilter
-                    title="Status"
-                    options={customerStatusOptions}
-                    values={draftFilters.statuses}
-                    onValuesChange={(statuses) =>
-                        onDraftFiltersChange((current) => ({
-                            ...current,
-                            statuses: statuses as CustomerFilters["statuses"],
-                        }))
-                    }
-                />
                 {isFiltered ? (
                     <Button
                         type="button"
@@ -366,73 +366,6 @@ function DataTableToolbar({
                 </Button>
             </div>
         </form>
-    );
-}
-
-function DataTableFacetedFilter({
-    title,
-    options,
-    values,
-    onValuesChange,
-}: {
-    title: string;
-    options: MultiSelectOption[];
-    values: string[];
-    onValuesChange: (values: string[]) => void;
-}) {
-    return (
-        <MultiSelect
-            options={options}
-            values={values}
-            searchPlaceholder={title}
-            clearLabel="Clear filters"
-            onValuesChange={onValuesChange}
-        >
-            {({ selectedValues, selectedOptions }) => (
-                <Button
-                    type="button"
-                    variant="outline"
-                    className="border-dashed"
-                >
-                    <ListFilterIcon className="size-4" />
-                    {title}
-                    {selectedValues.size > 0 ? (
-                        <>
-                            <Separator
-                                orientation="vertical"
-                                className="mx-1 h-4"
-                            />
-                            <Badge
-                                variant="secondary"
-                                className="rounded-sm px-1 font-normal lg:hidden"
-                            >
-                                {selectedValues.size}
-                            </Badge>
-                            <div className="hidden gap-1 lg:flex">
-                                {selectedValues.size > 2 ? (
-                                    <Badge
-                                        variant="secondary"
-                                        className="rounded-sm px-1 font-normal"
-                                    >
-                                        {selectedValues.size} selected
-                                    </Badge>
-                                ) : (
-                                    selectedOptions.map((option) => (
-                                        <Badge
-                                            key={option.value}
-                                            variant="secondary"
-                                            className="rounded-sm px-1 font-normal"
-                                        >
-                                            {option.label}
-                                        </Badge>
-                                    ))
-                                )}
-                            </div>
-                        </>
-                    ) : null}
-                </Button>
-            )}
-        </MultiSelect>
     );
 }
 

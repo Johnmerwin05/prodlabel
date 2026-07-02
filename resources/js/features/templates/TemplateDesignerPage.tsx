@@ -2,10 +2,12 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import {
+    ArrowLeftIcon,
     BarcodeIcon,
     BringToFrontIcon,
     CircleIcon,
     EyeIcon,
+    FileImageIcon,
     ImageIcon,
     MinusIcon,
     QrCodeIcon,
@@ -28,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { InputNumber } from "@/components/ui/input-number";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -40,14 +43,17 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { PaginatedCustomers } from "@/features/customers/partials/customer.model";
+import type { Customer } from "@/features/customers/partials/customer.model";
+import {
+    areaOptions,
+    type Area,
+} from "@/features/products/partials/product.model";
 import { api } from "@/shared/services/api";
 import { useToastStore, type ToastVariant } from "@/stores/toastStore";
 
@@ -55,6 +61,8 @@ import { TemplatePreviewDialog } from "./partials/TemplateDialogs";
 import { TemplatePreview } from "./partials/TemplatePreview";
 import {
     type CanvasSettings,
+    type CustomerTemplateAssignment,
+    type ElementVisibilityCondition,
     type PaperSize,
     type Template,
     type TemplateElement,
@@ -72,6 +80,9 @@ type Tool = {
     label: string;
     icon: React.ComponentType<{ className?: string }>;
 };
+
+type CustomerOption = Pick<Customer, "id" | "name" | "code">;
+const CUSTOMER_BATCH_SIZE = 50;
 
 const tools: Tool[] = [
     { type: "text", label: "Text", icon: TypeIcon },
@@ -93,7 +104,9 @@ export function TemplateDesignerPage() {
     const queryClient = useQueryClient();
     const notify = useToastStore((state) => state.notify);
     const [templateName, setTemplateName] = React.useState("");
-    const [customerIds, setCustomerIds] = React.useState<number[]>([]);
+    const [customerAssignments, setCustomerAssignments] = React.useState<
+        CustomerTemplateAssignment[]
+    >([]);
     const [settings, setSettings] = React.useState<CanvasSettings>(
         defaultCanvasSettings,
     );
@@ -111,6 +124,7 @@ export function TemplateDesignerPage() {
     >(null);
     const [previewTemplate, setPreviewTemplate] =
         React.useState<Template | null>(null);
+    const isHydratingTemplateRef = React.useRef(false);
 
     const templateQuery = useQuery({
         queryKey: ["template", templateId],
@@ -124,13 +138,14 @@ export function TemplateDesignerPage() {
     });
 
     const customersQuery = useQuery({
-        queryKey: ["template-designer-customers"],
+        queryKey: ["template-designer-customers", "v4"],
         queryFn: async () => {
-            const response = await api.get<PaginatedCustomers>("/customers", {
-                params: { per_page: 100 },
-            });
-            return response.data.data;
+            const response = await api.get<unknown>("/customers/options");
+            return normalizeCustomerOptions(response.data);
         },
+        staleTime: 30 * 60 * 1000,
+        gcTime: 60 * 60 * 1000,
+        refetchOnMount: false,
     });
 
     React.useEffect(() => {
@@ -138,8 +153,19 @@ export function TemplateDesignerPage() {
         if (!template) return;
 
         setTemplateName(template.name);
-        setCustomerIds(template.customers?.map((customer) => customer.id) ?? []);
-        setSettings(TemplatePresenter.normalizeSettings(template.settings));
+        setCustomerAssignments(
+            template.customer_assignments?.map((assignment) => ({
+                ...assignment,
+                area: assignment.area ?? "Assembly",
+            })) ??
+                template.customers?.map((customer) => ({
+                    customer_id: customer.id,
+                    area: "Assembly" as Area,
+                })) ??
+                [],
+        );
+        isHydratingTemplateRef.current = true;
+        setSettings(buildSettingsFromTemplate(template));
         setElements(
             (template.elements ?? []).map((element, index) => ({
                 ...element,
@@ -154,7 +180,7 @@ export function TemplateDesignerPage() {
             const payload = TemplatePresenter.toPayload(
                 templateName,
                 status,
-                customerIds,
+                customerAssignments,
                 settings,
                 elements,
             );
@@ -208,7 +234,8 @@ export function TemplateDesignerPage() {
 
     React.useEffect(() => {
         function handleKeyDown(event: KeyboardEvent) {
-            if (selectedIds.size === 0 || isEditableTarget(event.target)) return;
+            if (selectedIds.size === 0 || isEditableTarget(event.target))
+                return;
 
             if (event.key === "Delete" || event.key === "Backspace") {
                 event.preventDefault();
@@ -231,10 +258,14 @@ export function TemplateDesignerPage() {
             setElements((current) =>
                 current.map((element) =>
                     selectedIds.has(element.payload.id)
-                        ? withPayload(element, {
-                              x: element.payload.x + direction.x * step,
-                              y: element.payload.y + direction.y * step,
-                          }, settings)
+                        ? withPayload(
+                              element,
+                              {
+                                  x: element.payload.x + direction.x * step,
+                                  y: element.payload.y + direction.y * step,
+                              },
+                              settings,
+                          )
                         : element,
                 ),
             );
@@ -246,6 +277,11 @@ export function TemplateDesignerPage() {
     }, [selectedIds, settings.gridSize]);
 
     React.useEffect(() => {
+        if (isHydratingTemplateRef.current) {
+            isHydratingTemplateRef.current = false;
+            return;
+        }
+
         setElements((current) =>
             current.map((element) => ({
                 ...element,
@@ -260,6 +296,12 @@ export function TemplateDesignerPage() {
         settings.repeatGrid.enabled,
         settings.repeatGrid.columns,
         settings.repeatGrid.rows,
+        settings.repeatGrid.gap,
+        settings.margin.top,
+        settings.margin.right,
+        settings.margin.bottom,
+        settings.margin.left,
+        settings.padding,
     ]);
 
     function updateSettings(next: Partial<CanvasSettings>) {
@@ -268,10 +310,7 @@ export function TemplateDesignerPage() {
         );
     }
 
-    function updateMargin(
-        key: keyof CanvasSettings["margin"],
-        value: number,
-    ) {
+    function updateMargin(key: keyof CanvasSettings["margin"], value: number) {
         setSettings((current) => ({
             ...current,
             margin: {
@@ -400,12 +439,6 @@ export function TemplateDesignerPage() {
         });
     }
 
-    function removeSelectedElement() {
-        if (selectedIds.size === 0) return;
-
-        removeElements(selectedIds);
-    }
-
     function removeElement(elementId: string) {
         removeElements(new Set([elementId]));
     }
@@ -424,23 +457,29 @@ export function TemplateDesignerPage() {
         );
     }
 
-    function duplicateSelectedElement() {
-        if (!selectedElement) return;
+    function duplicateElement(elementId: string) {
+        const source = elements.find(
+            (element) => element.payload.id === elementId,
+        );
+        if (!source) return;
 
         const duplicate: TemplateElement = {
-            ...selectedElement,
+            ...source,
             id: undefined,
-            name: `${selectedElement.name ?? selectedElement.type} Copy`,
+            name: `${source.name ?? source.type} Copy`,
             z_index: elements.length,
             payload: {
-                ...selectedElement.payload,
+                ...source.payload,
                 id: crypto.randomUUID(),
-                label: `${selectedElement.payload.label} Copy`,
-                x: selectedElement.payload.x + 8,
-                y: selectedElement.payload.y + 8,
+                label: `${source.payload.label} Copy`,
+                x: source.payload.x + 8,
+                y: source.payload.y + 8,
             },
         };
-        duplicate.payload = constrainElementPayload(duplicate.payload, settings);
+        duplicate.payload = constrainElementPayload(
+            duplicate.payload,
+            settings,
+        );
 
         setElements((current) => [...current, duplicate]);
         selectSingleElement(duplicate.payload.id);
@@ -505,7 +544,9 @@ export function TemplateDesignerPage() {
             current_version: templateQuery.data?.current_version ?? 1,
             customers:
                 customersQuery.data?.filter((customer) =>
-                    customerIds.includes(customer.id),
+                    customerAssignments.some(
+                        (assignment) => assignment.customer_id === customer.id,
+                    ),
                 ) ?? [],
             elements,
             created_by: templateQuery.data?.created_by ?? null,
@@ -523,6 +564,13 @@ export function TemplateDesignerPage() {
                 description="Design customer-specific printable layouts with drag-and-drop elements, paper controls, margins, grid snapping, and live preview."
                 actions={
                     <>
+                        <Button
+                            variant="outline"
+                            onClick={() => navigate("/templates")}
+                        >
+                            <ArrowLeftIcon className="size-4" />
+                            Back
+                        </Button>
                         <Button variant="outline" onClick={showPreview}>
                             <EyeIcon className="size-4" />
                             Preview
@@ -533,13 +581,19 @@ export function TemplateDesignerPage() {
                             onClick={() => saveTemplate.mutate("draft")}
                         >
                             <SaveIcon className="size-4" />
-                            Save Draft
+                            {saveTemplate.isPending &&
+                            saveTemplate.variables === "draft"
+                                ? "Saving..."
+                                : "Save Draft"}
                         </Button>
                         <Button
                             disabled={saveTemplate.isPending}
                             onClick={() => saveTemplate.mutate("published")}
                         >
-                            Publish
+                            {saveTemplate.isPending &&
+                            saveTemplate.variables === "published"
+                                ? "Publishing..."
+                                : "Publish"}
                         </Button>
                     </>
                 }
@@ -548,11 +602,8 @@ export function TemplateDesignerPage() {
             <Card className="shadow-sm">
                 <CardContent className="p-4">
                     <Tabs defaultValue="elements">
-                        <TabsList className="w-full justify-start overflow-x-auto">
+                        <TabsList className="w-full justify-start">
                             <TabsTrigger value="elements">Elements</TabsTrigger>
-                            <TabsTrigger value="properties">
-                                Properties
-                            </TabsTrigger>
                             <TabsTrigger value="template">Template</TabsTrigger>
                         </TabsList>
                         <TabsContent value="elements" className="pt-4">
@@ -639,37 +690,21 @@ export function TemplateDesignerPage() {
                                 </div>
                             </div>
                         </TabsContent>
-                        <TabsContent value="properties" className="pt-4">
-                            <div className="max-h-[320px] space-y-5 overflow-auto pr-2">
-                                {selectedElement ? (
-                                    <ElementPropertiesPanel
-                                        element={selectedElement}
-                                        onChange={(patch) =>
-                                            updateElement(
-                                                selectedElement.payload.id,
-                                                patch,
-                                            )
-                                        }
-                                        onDuplicate={duplicateSelectedElement}
-                                        onDelete={removeSelectedElement}
-                                    />
-                                ) : (
-                                    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                                        Select an element on the canvas to edit
-                                        its properties.
-                                    </div>
-                                )}
-                            </div>
-                        </TabsContent>
                         <TabsContent value="template" className="pt-4">
-                            <div className="max-h-[320px] space-y-5 overflow-auto pr-2">
+                            <div className="max-h-[320px] min-w-0 space-y-5 overflow-x-hidden overflow-y-auto pr-2">
                                 <TemplateSettingsPanel
                                     templateName={templateName}
-                                    customerIds={customerIds}
-                                    customers={customersQuery.data ?? []}
+                                    customerAssignments={customerAssignments}
+                                    customers={
+                                        Array.isArray(customersQuery.data)
+                                            ? customersQuery.data
+                                            : []
+                                    }
                                     settings={settings}
                                     onNameChange={setTemplateName}
-                                    onCustomerIdsChange={setCustomerIds}
+                                    onCustomerAssignmentsChange={
+                                        setCustomerAssignments
+                                    }
                                     onSettingsChange={updateSettings}
                                     onMarginChange={updateMargin}
                                 />
@@ -765,6 +800,23 @@ export function TemplateDesignerPage() {
                                 onElementResize={(id, patch) =>
                                     updateElement(id, patch)
                                 }
+                                renderElementContextMenu={(element) => (
+                                    <ElementPropertiesPanel
+                                        element={element}
+                                        onChange={(patch) =>
+                                            updateElement(
+                                                element.payload.id,
+                                                patch,
+                                            )
+                                        }
+                                        onDuplicate={() =>
+                                            duplicateElement(element.payload.id)
+                                        }
+                                        onDelete={() =>
+                                            removeElement(element.payload.id)
+                                        }
+                                    />
+                                )}
                                 onElementDelete={(id) => {
                                     if (selectedIds.has(id)) {
                                         removeElements(selectedIds);
@@ -792,29 +844,97 @@ export function TemplateDesignerPage() {
 
 function TemplateSettingsPanel({
     templateName,
-    customerIds,
+    customerAssignments,
     customers,
     settings,
     onNameChange,
-    onCustomerIdsChange,
+    onCustomerAssignmentsChange,
     onSettingsChange,
     onMarginChange,
 }: {
     templateName: string;
-    customerIds: number[];
-    customers: PaginatedCustomers["data"];
+    customerAssignments: CustomerTemplateAssignment[];
+    customers: CustomerOption[];
     settings: CanvasSettings;
     onNameChange: (value: string) => void;
-    onCustomerIdsChange: (ids: number[]) => void;
+    onCustomerAssignmentsChange: (
+        assignments: CustomerTemplateAssignment[],
+    ) => void;
     onSettingsChange: (settings: Partial<CanvasSettings>) => void;
-    onMarginChange: (key: keyof CanvasSettings["margin"], value: number) => void;
+    onMarginChange: (
+        key: keyof CanvasSettings["margin"],
+        value: number,
+    ) => void;
 }) {
-    function toggleCustomer(customerId: number, checked: boolean) {
-        onCustomerIdsChange(
-            checked
-                ? [...customerIds, customerId]
-                : customerIds.filter((id) => id !== customerId),
+    const [customerSearch, setCustomerSearch] = React.useState("");
+    const [visibleCustomerCount, setVisibleCustomerCount] =
+        React.useState(CUSTOMER_BATCH_SIZE);
+    const assignmentsByCustomerId = React.useMemo(
+        () =>
+            new Map(
+                customerAssignments.map((assignment) => [
+                    assignment.customer_id,
+                    assignment,
+                ]),
+            ),
+        [customerAssignments],
+    );
+    const filteredCustomers = React.useMemo(() => {
+        const search = customerSearch.trim().toLowerCase();
+        if (!search) return customers;
+
+        return customers.filter(
+            (customer) =>
+                customer.name.toLowerCase().includes(search) ||
+                customer.code.toLowerCase().includes(search),
         );
+    }, [customerSearch, customers]);
+    const visibleCustomers = filteredCustomers.slice(0, visibleCustomerCount);
+    const allFilteredSelected =
+        filteredCustomers.length > 0 &&
+        filteredCustomers.every((customer) =>
+            assignmentsByCustomerId.has(customer.id),
+        );
+
+    React.useEffect(() => {
+        setVisibleCustomerCount(CUSTOMER_BATCH_SIZE);
+    }, [customerSearch]);
+
+    function toggleCustomer(customerId: number, checked: boolean) {
+        onCustomerAssignmentsChange(
+            checked
+                ? [
+                      ...customerAssignments,
+                      { customer_id: customerId, area: "Assembly" },
+                  ]
+                : customerAssignments.filter(
+                      (assignment) => assignment.customer_id !== customerId,
+                  ),
+        );
+    }
+
+    function changeCustomerArea(customerId: number, area: Area) {
+        onCustomerAssignmentsChange(
+            customerAssignments.map((assignment) =>
+                assignment.customer_id === customerId
+                    ? { ...assignment, area }
+                    : assignment,
+            ),
+        );
+    }
+
+    function selectAllCustomers() {
+        const assignedIds = new Set(
+            customerAssignments.map((assignment) => assignment.customer_id),
+        );
+        const additions = filteredCustomers
+            .filter((customer) => !assignedIds.has(customer.id))
+            .map((customer) => ({
+                customer_id: customer.id,
+                area: "Assembly" as Area,
+            }));
+
+        onCustomerAssignmentsChange([...customerAssignments, ...additions]);
     }
 
     function changePaperSize(paperSize: PaperSize) {
@@ -841,26 +961,113 @@ function TemplateSettingsPanel({
                 />
             </Field>
             <Field label="Assigned Customers">
-                <div className="grid max-h-44 gap-2 overflow-auto rounded-md border p-2">
-                    {customers.map((customer) => (
-                        <label
-                            key={customer.id}
-                            className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted/60"
+                <div className="min-w-0 space-y-2 overflow-x-hidden">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input
+                            value={customerSearch}
+                            onChange={(event) =>
+                                setCustomerSearch(event.target.value)
+                            }
+                            placeholder="Search customer name or code..."
+                            className="flex-1"
+                        />
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                                filteredCustomers.length === 0 ||
+                                allFilteredSelected
+                            }
+                            onClick={selectAllCustomers}
                         >
-                            <Checkbox
-                                checked={customerIds.includes(customer.id)}
-                                onCheckedChange={(checked) =>
-                                    toggleCustomer(customer.id, checked === true)
+                            Select All
+                        </Button>
+                    </div>
+                    <div className="grid max-h-44 gap-2 overflow-auto rounded-md border p-2">
+                        {visibleCustomers.map((customer) => {
+                            const assignment = assignmentsByCustomerId.get(
+                                customer.id,
+                            );
+
+                            return (
+                                <div
+                                    key={customer.id}
+                                    className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted/60"
+                                >
+                                    <Checkbox
+                                        checked={Boolean(assignment)}
+                                        onCheckedChange={(checked) =>
+                                            toggleCustomer(
+                                                customer.id,
+                                                checked === true,
+                                            )
+                                        }
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate">
+                                            {customer.name}
+                                        </span>
+                                        <span className="block truncate text-xs text-muted-foreground">
+                                            {customer.code}
+                                        </span>
+                                    </span>
+                                    <Select
+                                        value={assignment?.area ?? "Assembly"}
+                                        disabled={!assignment}
+                                        onValueChange={(area) =>
+                                            changeCustomerArea(
+                                                customer.id,
+                                                area as Area,
+                                            )
+                                        }
+                                    >
+                                        <SelectTrigger className="h-8 w-32 shrink-0 sm:w-36">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {areaOptions.map((area) => (
+                                                <SelectItem
+                                                    key={area}
+                                                    value={area}
+                                                >
+                                                    {area}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            );
+                        })}
+                        {filteredCustomers.length === 0 ? (
+                            <p className="px-2 py-1 text-sm text-muted-foreground">
+                                {customers.length === 0
+                                    ? "No customers available."
+                                    : "No customers match your search."}
+                            </p>
+                        ) : null}
+                        {visibleCustomerCount < filteredCustomers.length ? (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="w-full"
+                                onClick={() =>
+                                    setVisibleCustomerCount((count) =>
+                                        Math.min(
+                                            count + CUSTOMER_BATCH_SIZE,
+                                            filteredCustomers.length,
+                                        ),
+                                    )
                                 }
-                            />
-                            <span>{customer.name}</span>
-                        </label>
-                    ))}
-                    {customers.length === 0 ? (
-                        <p className="px-2 py-1 text-sm text-muted-foreground">
-                            No customers available.
-                        </p>
-                    ) : null}
+                            >
+                                Show More (
+                                {filteredCustomers.length -
+                                    visibleCustomerCount}{" "}
+                                remaining)
+                            </Button>
+                        ) : null}
+                    </div>
                 </div>
             </Field>
             <Separator />
@@ -876,13 +1083,18 @@ function TemplateSettingsPanel({
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                            {["A3", "A4", "A5", "Letter", "Legal", "Custom"].map(
-                                (size) => (
-                                    <SelectItem key={size} value={size}>
-                                        {size}
-                                    </SelectItem>
-                                ),
-                            )}
+                            {[
+                                "A3",
+                                "A4",
+                                "A5",
+                                "Letter",
+                                "Legal",
+                                "Custom",
+                            ].map((size) => (
+                                <SelectItem key={size} value={size}>
+                                    {size}
+                                </SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                 </Field>
@@ -891,7 +1103,8 @@ function TemplateSettingsPanel({
                         value={settings.orientation}
                         onValueChange={(value) =>
                             onSettingsChange({
-                                orientation: value as CanvasSettings["orientation"],
+                                orientation:
+                                    value as CanvasSettings["orientation"],
                             })
                         }
                     >
@@ -960,8 +1173,53 @@ function TemplateSettingsPanel({
                             })
                         }
                     />
+                    <NumberField
+                        label="Cell Gap"
+                        value={settings.repeatGrid.gap}
+                        min={0}
+                        onChange={(gap) =>
+                            onSettingsChange({
+                                repeatGrid: {
+                                    ...settings.repeatGrid,
+                                    gap,
+                                },
+                            })
+                        }
+                    />
                 </div>
             ) : null}
+            <Separator />
+            <div className="grid grid-cols-2 gap-3">
+                <Field label="Print Mode">
+                    <Select
+                        value={settings.printMode}
+                        onValueChange={(printMode) =>
+                            onSettingsChange({
+                                printMode:
+                                    printMode as CanvasSettings["printMode"],
+                            })
+                        }
+                    >
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="per_print">Per Print</SelectItem>
+                            <SelectItem value="per_packing_quantity">
+                                Per Packing Quantity
+                            </SelectItem>
+                        </SelectContent>
+                    </Select>
+                </Field>
+                <NumberField
+                    label="Copies Per Print"
+                    value={settings.copiesPerPrint}
+                    min={1}
+                    onChange={(copiesPerPrint) =>
+                        onSettingsChange({ copiesPerPrint })
+                    }
+                />
+            </div>
             <Separator />
             <div className="grid grid-cols-2 gap-3">
                 <NumberField
@@ -1036,16 +1294,60 @@ function ElementPropertiesPanel({
     const isShape = ["rectangle", "circle", "container", "line"].includes(
         element.type,
     );
+    const imageInputId = React.useId();
+    const notify = useToastStore((state) => state.notify);
+    const [isImageUploading, setIsImageUploading] = React.useState(false);
+    const visibilityCondition = payload.visibilityCondition;
+    const conditionNeedsValue =
+        visibilityCondition?.operator === "equals" ||
+        visibilityCondition?.operator === "not_equals";
+
+    async function attachImage(file: File | null) {
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+            notify({
+                variant: "error",
+                title: "Invalid image",
+                description: "Please choose an image file.",
+            });
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("image", file);
+
+        setIsImageUploading(true);
+        try {
+            const response = await api.post<{
+                data: { url: string; path: string };
+            }>("/templates/images", formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+            });
+            onChange({ src: response.data.data.url });
+        } catch (error) {
+            showApiError(error, notify);
+        } finally {
+            setIsImageUploading(false);
+        }
+    }
 
     return (
-        <>
-            <Field label="Element Name">
-                <Input
-                    value={payload.label}
-                    onChange={(event) => onChange({ label: event.target.value })}
-                />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
+        <div className="flex max-h-[min(620px,calc(100vh-3rem))] flex-col">
+            <div className="border-b px-4 py-3">
+                <p className="text-sm font-medium">{payload.label}</p>
+                <p className="text-xs capitalize text-muted-foreground">
+                    {element.type} element
+                </p>
+            </div>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+                <Field label="Element Name">
+                    <Input
+                        value={payload.label}
+                        onChange={(event) =>
+                            onChange({ label: event.target.value })
+                        }
+                    />
+                </Field>
                 <NumberField
                     label="X"
                     value={payload.x}
@@ -1077,19 +1379,224 @@ function ElementPropertiesPanel({
                     step="0.1"
                     onChange={(opacity) => onChange({ opacity })}
                 />
-            </div>
-            {isText ? (
-                <>
+                <div className="space-y-4">
                     <Separator />
-                    <Field label="Text Value">
-                        <Textarea
-                            value={payload.value ?? ""}
-                            onChange={(event) =>
-                                onChange({ value: event.target.value })
-                            }
-                        />
-                    </Field>
-                    <div className="grid grid-cols-2 gap-3">
+                    <ToggleRow
+                        label="Conditional display"
+                        checked={Boolean(visibilityCondition)}
+                        onCheckedChange={(checked) =>
+                            onChange({
+                                visibilityCondition: checked
+                                    ? {
+                                          variable: "product_name",
+                                          operator: "equals",
+                                          value: "",
+                                      }
+                                    : undefined,
+                            })
+                        }
+                    />
+                    {visibilityCondition ? (
+                        <div className="space-y-4 rounded-md border bg-muted/20 p-3">
+                            <p className="text-xs text-muted-foreground">
+                                This element is included only when the product
+                                value matches this rule.
+                            </p>
+                            <Field label="Product Field">
+                                <Select
+                                    value={visibilityCondition.variable}
+                                    onValueChange={(variable) =>
+                                        onChange({
+                                            visibilityCondition: {
+                                                ...visibilityCondition,
+                                                variable,
+                                            },
+                                        })
+                                    }
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {placeholderOptions.map((option) => {
+                                            const variable = option.replace(
+                                                /^\{\{|\}\}$/g,
+                                                "",
+                                            );
+
+                                            return (
+                                                <SelectItem
+                                                    key={variable}
+                                                    value={variable}
+                                                >
+                                                    {dynamicVariableLabel(
+                                                        option,
+                                                    )}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            </Field>
+                            <Field label="Condition">
+                                <Select
+                                    value={visibilityCondition.operator}
+                                    onValueChange={(operator) =>
+                                        onChange({
+                                            visibilityCondition: {
+                                                ...visibilityCondition,
+                                                operator:
+                                                    operator as ElementVisibilityCondition["operator"],
+                                            },
+                                        })
+                                    }
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="equals">
+                                            Equals
+                                        </SelectItem>
+                                        <SelectItem value="not_equals">
+                                            Does not equal
+                                        </SelectItem>
+                                        <SelectItem value="is_empty">
+                                            Is empty
+                                        </SelectItem>
+                                        <SelectItem value="is_not_empty">
+                                            Is not empty
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </Field>
+                            {conditionNeedsValue ? (
+                                <Field label="Value">
+                                    <Input
+                                        value={visibilityCondition.value ?? ""}
+                                        onChange={(event) =>
+                                            onChange({
+                                                visibilityCondition: {
+                                                    ...visibilityCondition,
+                                                    value: event.target.value,
+                                                },
+                                            })
+                                        }
+                                        placeholder="Circle"
+                                    />
+                                </Field>
+                            ) : null}
+                        </div>
+                    ) : null}
+                </div>
+                {isText ? (
+                    <div className="space-y-4">
+                        <Separator />
+                        {element.type === "variable" ? (
+                            <Field label="Text Value">
+                                <Select
+                                    value={
+                                        payload.value ?? placeholderOptions[0]
+                                    }
+                                    onValueChange={(value) =>
+                                        onChange(
+                                            value === "{{serial_number}}"
+                                                ? {
+                                                      value,
+                                                      serialNumberFormat:
+                                                          payload.serialNumberFormat ??
+                                                          "{yy}-{seq:5}",
+                                                      serialNumberStart:
+                                                          payload.serialNumberStart ??
+                                                          1,
+                                                      serialNumberResetsYearly:
+                                                          payload.serialNumberResetsYearly ??
+                                                          false,
+                                                  }
+                                                : { value },
+                                        )
+                                    }
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {placeholderOptions.map((option) => (
+                                            <SelectItem
+                                                key={option}
+                                                value={option}
+                                            >
+                                                {dynamicVariableLabel(option)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </Field>
+                        ) : (
+                            <Field label="Text Value">
+                                <Input
+                                    value={payload.value ?? ""}
+                                    onChange={(event) =>
+                                        onChange({ value: event.target.value })
+                                    }
+                                />
+                            </Field>
+                        )}
+                        {element.type === "variable" &&
+                        payload.value === "{{serial_number}}" ? (
+                            <div className="space-y-4 rounded-md border bg-muted/20 p-3">
+                                <div>
+                                    <div className="text-sm font-medium">
+                                        Serial Number Configuration
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Applied when this template generates
+                                        serial numbers.
+                                    </p>
+                                </div>
+                                <Field label="Serial Format">
+                                    <Input
+                                        value={
+                                            payload.serialNumberFormat ??
+                                            "{yy}-{seq:5}"
+                                        }
+                                        onChange={(event) =>
+                                            onChange({
+                                                serialNumberFormat:
+                                                    event.target.value,
+                                            })
+                                        }
+                                        placeholder="{yy}-{seq:5}"
+                                    />
+                                </Field>
+                                <NumberField
+                                    label="Starting Sequence"
+                                    value={payload.serialNumberStart ?? 1}
+                                    min={1}
+                                    onChange={(serialNumberStart) =>
+                                        onChange({ serialNumberStart })
+                                    }
+                                />
+                                <div className="rounded-md bg-muted/60 p-2 text-xs text-muted-foreground">
+                                    Use <code>{"{seq:5}"}</code> for 00001,
+                                    <code>{" {rand:8}"}</code> for random text,
+                                    and <code>{"{yy}"}</code> for the year.
+                                </div>
+                                <ToggleRow
+                                    label="Reset sequence every year"
+                                    checked={Boolean(
+                                        payload.serialNumberResetsYearly,
+                                    )}
+                                    onCheckedChange={(
+                                        serialNumberResetsYearly,
+                                    ) =>
+                                        onChange({
+                                            serialNumberResetsYearly,
+                                        })
+                                    }
+                                />
+                            </div>
+                        ) : null}
                         <Field label="Font Family">
                             <Select
                                 value={payload.fontFamily ?? "Figtree"}
@@ -1154,7 +1661,9 @@ function ElementPropertiesPanel({
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="left">Left</SelectItem>
-                                    <SelectItem value="center">Center</SelectItem>
+                                    <SelectItem value="center">
+                                        Center
+                                    </SelectItem>
                                     <SelectItem value="right">Right</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -1169,36 +1678,36 @@ function ElementPropertiesPanel({
                             />
                         </Field>
                     </div>
-                </>
-            ) : null}
-            {isCode ? (
-                <>
-                    <Separator />
-                    <Field label="Value Source">
-                        <Input
-                            value={payload.valueSource ?? ""}
-                            onChange={(event) =>
-                                onChange({ valueSource: event.target.value })
+                ) : null}
+                {isCode ? (
+                    <div className="space-y-4">
+                        <Separator />
+                        <Field label="Value Source">
+                            <Input
+                                value={payload.valueSource ?? ""}
+                                onChange={(event) =>
+                                    onChange({
+                                        valueSource: event.target.value,
+                                    })
+                                }
+                            />
+                        </Field>
+                        <ToggleRow
+                            label="Show value label"
+                            checked={
+                                element.type === "barcode"
+                                    ? payload.showLabel !== false
+                                    : Boolean(payload.showLabel)
+                            }
+                            onCheckedChange={(showLabel) =>
+                                onChange({ showLabel })
                             }
                         />
-                    </Field>
-                    <ToggleRow
-                        label="Show value label"
-                        checked={
-                            element.type === "barcode"
-                                ? payload.showLabel !== false
-                                : Boolean(payload.showLabel)
-                        }
-                        onCheckedChange={(showLabel) =>
-                            onChange({ showLabel })
-                        }
-                    />
-                </>
-            ) : null}
-            {isShape ? (
-                <>
-                    <Separator />
-                    <div className="grid grid-cols-2 gap-3">
+                    </div>
+                ) : null}
+                {isShape ? (
+                    <div className="space-y-4">
+                        <Separator />
                         <Field label="Border">
                             <Input
                                 type="color"
@@ -1226,53 +1735,126 @@ function ElementPropertiesPanel({
                                 onChange({ borderWidth })
                             }
                         />
+                        {element.type === "container" ? (
+                            <Field label="Border Type">
+                                <Select
+                                    value={payload.borderStyle ?? "solid"}
+                                    onValueChange={(borderStyle) =>
+                                        onChange({
+                                            borderStyle:
+                                                borderStyle as TemplateElementPayload["borderStyle"],
+                                        })
+                                    }
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="solid">
+                                            Solid
+                                        </SelectItem>
+                                        <SelectItem value="dashed">
+                                            Dashed
+                                        </SelectItem>
+                                        <SelectItem value="dotted">
+                                            Dotted
+                                        </SelectItem>
+                                        <SelectItem value="double">
+                                            Double
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </Field>
+                        ) : null}
                         <NumberField
                             label="Radius"
                             value={payload.radius ?? 0}
                             onChange={(radius) => onChange({ radius })}
                         />
                     </div>
-                </>
-            ) : null}
-            {element.type === "table" ? (
-                <>
-                    <Separator />
-                    <Field label="Columns">
-                        <Input
-                            value={(payload.columns ?? []).join(", ")}
-                            onChange={(event) =>
-                                onChange({
-                                    columns: event.target.value
-                                        .split(",")
-                                        .map((column) => column.trim())
-                                        .filter(Boolean),
-                                })
-                            }
+                ) : null}
+                {element.type === "table" ? (
+                    <div className="space-y-4">
+                        <Separator />
+                        <Field label="Columns">
+                            <Input
+                                value={(payload.columns ?? []).join(", ")}
+                                onChange={(event) =>
+                                    onChange({
+                                        columns: event.target.value
+                                            .split(",")
+                                            .map((column) => column.trim())
+                                            .filter(Boolean),
+                                    })
+                                }
+                            />
+                        </Field>
+                        <NumberField
+                            label="Rows"
+                            value={payload.rows ?? 3}
+                            onChange={(rows) => onChange({ rows })}
                         />
-                    </Field>
-                    <NumberField
-                        label="Rows"
-                        value={payload.rows ?? 3}
-                        onChange={(rows) => onChange({ rows })}
-                    />
-                </>
-            ) : null}
-            {element.type === "image" ? (
-                <>
-                    <Separator />
-                    <Field label="Image URL">
-                        <Input
-                            value={payload.src ?? ""}
-                            onChange={(event) =>
-                                onChange({ src: event.target.value })
-                            }
-                            placeholder="/storage/logos/customer.png"
+                    </div>
+                ) : null}
+                {element.type === "image" ? (
+                    <div className="space-y-4">
+                        <Separator />
+                        {payload.src ? (
+                            <div className="overflow-hidden rounded-md border bg-muted/30 p-2">
+                                <img
+                                    src={payload.src}
+                                    alt={payload.label}
+                                    className="max-h-32 w-full object-contain"
+                                />
+                            </div>
+                        ) : null}
+                        <input
+                            id={imageInputId}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(event) => {
+                                void attachImage(
+                                    event.target.files?.[0] ?? null,
+                                );
+                                event.currentTarget.value = "";
+                            }}
                         />
-                    </Field>
-                </>
-            ) : null}
-            <Separator />
-            <div className="flex gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full"
+                            disabled={isImageUploading}
+                            onClick={() =>
+                                document.getElementById(imageInputId)?.click()
+                            }
+                        >
+                            <FileImageIcon className="size-4" />
+                            {isImageUploading ? "Uploading..." : "Attach Photo"}
+                        </Button>
+                        <Field label="Image URL">
+                            <Input
+                                value={payload.src ?? ""}
+                                onChange={(event) =>
+                                    onChange({ src: event.target.value })
+                                }
+                                placeholder="/storage/logos/customer.png"
+                            />
+                        </Field>
+                        {payload.src ? (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                className="w-full text-destructive hover:text-destructive"
+                                onClick={() => onChange({ src: "" })}
+                            >
+                                Remove Image
+                            </Button>
+                        ) : null}
+                    </div>
+                ) : null}
+            </div>
+            <div className="flex gap-2 border-t bg-popover p-3">
                 <Button
                     type="button"
                     variant="outline"
@@ -1290,7 +1872,7 @@ function ElementPropertiesPanel({
                     Delete
                 </Button>
             </div>
-        </>
+        </div>
     );
 }
 
@@ -1302,8 +1884,10 @@ function Field({
     children: React.ReactNode;
 }) {
     return (
-        <div className="grid gap-2">
-            <Label>{label}</Label>
+        <div className="grid gap-2.5">
+            <Label className="text-xs font-medium text-muted-foreground">
+                {label}
+            </Label>
             {children}
         </div>
     );
@@ -1328,14 +1912,14 @@ function NumberField({
 }) {
     return (
         <Field label={label}>
-            <Input
-                type="number"
+            <InputNumber
                 step={step}
                 min={min}
                 max={max}
                 value={Number.isFinite(value) ? value : 0}
                 disabled={disabled}
-                onChange={(event) => onChange(Number(event.target.value))}
+                allowDecimal={step.includes(".")}
+                onValueChange={onChange}
             />
         </Field>
     );
@@ -1408,6 +1992,7 @@ function createElementPayload(
         borderColor: "#111827",
         fillColor: "#ffffff",
         borderWidth: 1,
+        borderStyle: "solid",
         radius: 0,
     } satisfies TemplateElementPayload;
 
@@ -1505,6 +2090,26 @@ function normalizeElementPayload(
     };
 }
 
+function buildSettingsFromTemplate(template: Template) {
+    const paperSize = template.paper_size ?? template.settings?.paperSize;
+    const dimensions =
+        paperSize && paperSize !== "Custom" ? paperDimensions[paperSize] : null;
+
+    return TemplatePresenter.normalizeSettings({
+        ...template.settings,
+        paperSize,
+        orientation: template.orientation ?? template.settings?.orientation,
+        widthMm:
+            template.width_mm ??
+            template.settings?.widthMm ??
+            dimensions?.width,
+        heightMm:
+            template.height_mm ??
+            template.settings?.heightMm ??
+            dimensions?.height,
+    });
+}
+
 function labelForType(type: TemplateElementType) {
     const labels: Record<TemplateElementType, string> = {
         text: "Text",
@@ -1520,6 +2125,54 @@ function labelForType(type: TemplateElementType) {
     };
 
     return labels[type];
+}
+
+function dynamicVariableLabel(value: string) {
+    return value
+        .replace(/^\{\{|\}\}$/g, "")
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+}
+
+function normalizeCustomerOptions(payload: unknown): CustomerOption[] {
+    let current = payload;
+
+    for (let depth = 0; depth < 3; depth++) {
+        if (
+            typeof current === "object" &&
+            current !== null &&
+            !Array.isArray(current) &&
+            "data" in current
+        ) {
+            current = current.data;
+            continue;
+        }
+
+        const rows = Array.isArray(current)
+            ? current
+            : typeof current === "object" && current !== null
+              ? Object.values(current)
+              : [];
+
+        return rows.flatMap((customer) => {
+            if (typeof customer !== "object" || customer === null) return [];
+
+            const row = customer as Record<string, unknown>;
+            const id = Number(row.id);
+            if (
+                !Number.isInteger(id) ||
+                typeof row.name !== "string" ||
+                typeof row.code !== "string"
+            ) {
+                return [];
+            }
+
+            return [{ id, name: row.name, code: row.code }];
+        });
+    }
+
+    return [];
 }
 
 function snap(value: number, settings: CanvasSettings) {
@@ -1557,7 +2210,9 @@ function arrangeElementLayers(
         );
 
         return normalizeElementLayers(
-            direction === "front" ? [...rest, ...selected] : [...selected, ...rest],
+            direction === "front"
+                ? [...rest, ...selected]
+                : [...selected, ...rest],
         );
     }
 
@@ -1611,7 +2266,7 @@ function withPayload(
     };
 }
 
-function getEditableCellSize(settings: CanvasSettings) {
+function getRepeatGridMetrics(settings: CanvasSettings) {
     const canvas = TemplatePresenter.getCanvasSize(settings);
     const columns = settings.repeatGrid.enabled
         ? Math.max(settings.repeatGrid.columns, 1)
@@ -1619,11 +2274,56 @@ function getEditableCellSize(settings: CanvasSettings) {
     const rows = settings.repeatGrid.enabled
         ? Math.max(settings.repeatGrid.rows, 1)
         : 1;
+    const gap = getRepeatGap(
+        settings.repeatGrid.enabled ? settings.repeatGrid.gap : 0,
+        canvas,
+        columns,
+        rows,
+    );
 
     return {
-        width: canvas.width / columns,
-        height: canvas.height / rows,
+        columns,
+        rows,
+        gap,
+        width: Math.max(1, (canvas.width - gap * (columns - 1)) / columns),
+        height: Math.max(1, (canvas.height - gap * (rows - 1)) / rows),
     };
+}
+
+function getEditableContentBounds(settings: CanvasSettings) {
+    const canvas = TemplatePresenter.getCanvasSize(settings);
+    const cell = getRepeatGridMetrics(settings);
+    const source = settings.repeatGrid.enabled ? cell : canvas;
+    const left = Math.max(0, settings.margin.left + settings.padding);
+    const top = Math.max(0, settings.margin.top + settings.padding);
+    const right = Math.max(0, settings.margin.right + settings.padding);
+    const bottom = Math.max(0, settings.margin.bottom + settings.padding);
+
+    const width = Math.max(8, source.width - left - right);
+    const height = Math.max(8, source.height - top - bottom);
+
+    return {
+        x: Math.min(left, Math.max(0, source.width - width)),
+        y: Math.min(top, Math.max(0, source.height - height)),
+        width,
+        height,
+    };
+}
+
+function getRepeatGap(
+    gap: number,
+    canvas: { width: number; height: number },
+    columns: number,
+    rows: number,
+) {
+    const maxColumnGap =
+        columns > 1
+            ? Math.max(0, (canvas.width - columns) / (columns - 1))
+            : Infinity;
+    const maxRowGap =
+        rows > 1 ? Math.max(0, (canvas.height - rows) / (rows - 1)) : Infinity;
+
+    return Math.min(Math.max(gap, 0), maxColumnGap, maxRowGap);
 }
 
 function toEditableCellPosition(
@@ -1631,52 +2331,51 @@ function toEditableCellPosition(
     y: number,
     settings: CanvasSettings,
 ) {
-    if (!settings.repeatGrid.enabled) return { x, y };
-
-    const cell = getEditableCellSize(settings);
+    const bounds = getEditableContentBounds(settings);
 
     return {
-        x: Math.min(Math.max(0, x), Math.max(0, cell.width - 8)),
-        y: Math.min(Math.max(0, y), Math.max(0, cell.height - 8)),
+        x: Math.min(
+            Math.max(bounds.x, x),
+            Math.max(bounds.x, bounds.x + bounds.width - 8),
+        ),
+        y: Math.min(
+            Math.max(bounds.y, y),
+            Math.max(bounds.y, bounds.y + bounds.height - 8),
+        ),
     };
 }
 
-function isInsideEditableCell(
-    x: number,
-    y: number,
-    settings: CanvasSettings,
-) {
-    if (!settings.repeatGrid.enabled) return true;
+function isInsideEditableCell(x: number, y: number, settings: CanvasSettings) {
+    const bounds = getEditableContentBounds(settings);
 
-    const cell = getEditableCellSize(settings);
-
-    return x >= 0 && y >= 0 && x <= cell.width && y <= cell.height;
+    return (
+        x >= bounds.x &&
+        y >= bounds.y &&
+        x <= bounds.x + bounds.width &&
+        y <= bounds.y + bounds.height
+    );
 }
 
 function constrainElementPayload(
     payload: TemplateElementPayload,
     settings: CanvasSettings,
 ): TemplateElementPayload {
-    if (!settings.repeatGrid.enabled) {
-        return {
-            ...payload,
-            x: Math.max(0, payload.x),
-            y: Math.max(0, payload.y),
-            width: Math.max(8, payload.width),
-            height: Math.max(8, payload.height),
-        };
-    }
-
-    const cell = getEditableCellSize(settings);
-    const width = Math.min(Math.max(8, payload.width), cell.width);
-    const height = Math.min(Math.max(8, payload.height), cell.height);
+    const bounds = getEditableContentBounds(settings);
+    const width = Math.min(Math.max(8, payload.width), bounds.width);
+    const height = Math.min(Math.max(8, payload.height), bounds.height);
 
     return {
         ...payload,
         width,
         height,
-        x: Math.min(Math.max(0, payload.x), Math.max(0, cell.width - width)),
-        y: Math.min(Math.max(0, payload.y), Math.max(0, cell.height - height)),
+        x: Math.min(
+            Math.max(bounds.x, payload.x),
+            Math.max(bounds.x, bounds.x + bounds.width - width),
+        ),
+        y: Math.min(
+            Math.max(bounds.y, payload.y),
+            Math.max(bounds.y, bounds.y + bounds.height - height),
+        ),
     };
 }
 

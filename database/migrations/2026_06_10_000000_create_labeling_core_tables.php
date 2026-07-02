@@ -118,20 +118,16 @@ return new class extends Migration
             $table->string('sku')->index();
             $table->string('name')->index();
             $table->text('description')->nullable();
-            $table->unsignedInteger('quantity');
             $table->string('batch_number')->nullable()->index();
             $table->string('lot_number')->nullable()->index();
             $table->date('manufacturing_date')->nullable();
             $table->date('expiration_date')->nullable()->index();
-            $table->string('status')->default('draft')->index();
-            $table->unsignedInteger('print_count')->default(0);
-            $table->timestamp('last_printed_at')->nullable()->index();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('updated_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('deleted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
             $table->softDeletes();
-            $table->index(['customer_id', 'status', 'created_at']);
+            $table->index(['customer_id', 'created_at']);
             $table->index(['customer_id', 'sku']);
         });
 

@@ -1,6 +1,5 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-    BellIcon,
     ChevronDownIcon,
     LogOutIcon,
     MoonIcon,
@@ -12,6 +11,7 @@ import {
 import { useState } from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
+import { NotificationBell } from "@/components/notification-bell";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
     AlertDialog,
@@ -44,6 +44,8 @@ import { useTheme } from "@/components/theme-provider";
 import { useAuthStore } from "@/features/auth/authStore";
 import { cn } from "@/lib/utils";
 import { api } from "@/shared/services/api";
+import { useRealtimeDataSync } from "@/shared/hooks/use-realtime-data-sync";
+import { useSystemSettings } from "@/features/settings/system-settings";
 
 const pageLabels: Record<string, string> = {
     dashboard: "Dashboard",
@@ -54,15 +56,19 @@ const pageLabels: Record<string, string> = {
     mass: "Mass Printing",
     templates: "Templates",
     designer: "Designer",
-    reports: "Reports",
+    roles: "Role Management",
     "audit-logs": "Audit Logs",
     settings: "Settings",
+    profile: "My Profile",
+    "no-access": "No Access",
 };
 
 export function AppLayout() {
+    useRealtimeDataSync();
     const location = useLocation();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const systemSettings = useSystemSettings();
     const segments = location.pathname.split("/").filter(Boolean);
     const currentLabel =
         pageLabels[segments.at(-1) ?? "dashboard"] ?? "Workspace";
@@ -79,7 +85,7 @@ export function AppLayout() {
     return (
         <div
             className={cn(
-                "grid h-dvh overflow-hidden bg-background transition-[grid-template-columns] duration-200 lg:grid-cols-[280px_1fr]",
+                "fixed inset-0 grid overflow-hidden bg-background transition-[grid-template-columns] duration-200 lg:grid-cols-[280px_1fr]",
                 sidebarCollapsed && "lg:grid-cols-[0_1fr]",
             )}
         >
@@ -142,32 +148,7 @@ export function AppLayout() {
                     </div>
                     <div className="flex items-center gap-2">
                         <ThemeToggle />
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    aria-label="Open notifications"
-                                >
-                                    <BellIcon className="size-4" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-72">
-                                <DropdownMenuLabel>
-                                    Notifications
-                                </DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem>
-                                    Print job PRN-001 completed
-                                </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                    Template Vial QR archived
-                                </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                    3 upload rows require review
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        <NotificationBell />
                         <HeaderAccountMenu />
                     </div>
                 </header>
@@ -177,8 +158,7 @@ export function AppLayout() {
                     </div>
                 </div>
                 <footer className="shrink-0 border-t bg-background px-4 py-5 text-center text-xs text-muted-foreground md:px-6">
-                    Copyright © {new Date().getFullYear()} Tugon Technology Inc.
-                    All rights reserved.
+                    Copyright © {new Date().getFullYear()} {systemSettings.footer_content}
                 </footer>
             </main>
         </div>
@@ -212,9 +192,11 @@ function HeaderAccountMenu() {
     const clearSession = useAuthStore((state) => state.clearSession);
     const [isLogoutOpen, setIsLogoutOpen] = useState(false);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const systemSettings = useSystemSettings();
     const profile = {
-        name: user?.name ?? "Maria Santos",
-        email: user?.email ?? "supervisor@prodlabel.local",
+        name: user?.name ?? "User",
+        displayName: getFirstName(user?.name ?? "User"),
+        email: user?.email ?? "",
         avatar: "",
     };
 
@@ -250,7 +232,7 @@ function HeaderAccountMenu() {
                             </AvatarFallback>
                         </Avatar>
                         <span className="hidden max-w-32 truncate text-sm font-medium sm:inline">
-                            {profile.name}
+                            {profile.displayName}
                         </span>
                         <ChevronDownIcon className="size-4 text-foreground/50" />
                     </Button>
@@ -265,7 +247,7 @@ function HeaderAccountMenu() {
                         </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => navigate("/settings")}>
+                    <DropdownMenuItem onClick={() => navigate("/profile")}>
                         <Settings2Icon className="size-4" />
                         Profile settings
                     </DropdownMenuItem>
@@ -291,7 +273,7 @@ function HeaderAccountMenu() {
                             <LogOutIcon className="size-5" />
                         </AlertDialogMedia>
                         <AlertDialogTitle>
-                            Log out of ProdLabel?
+                            Log out of {systemSettings.system_name}?
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                             You will be returned to the login page and must sign
@@ -326,4 +308,8 @@ function getInitials(name: string) {
         .join("")
         .slice(0, 2)
         .toUpperCase();
+}
+
+function getFirstName(name: string) {
+    return name.trim().split(/\s+/)[0] || "User";
 }

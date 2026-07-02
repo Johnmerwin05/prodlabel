@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/shared/services/api";
 import { useAuthStore } from "@/features/auth/authStore";
 import { useToastStore } from "@/stores/toastStore";
+import { useSystemSettings } from "@/features/settings/system-settings";
 
 const loginSchema = z.object({
     username: z.string().min(1, "Username is required."),
@@ -40,6 +41,7 @@ export function LoginForm({
     const location = useLocation();
     const setSession = useAuthStore((state) => state.setSession);
     const notify = useToastStore((state) => state.notify);
+    const systemSettings = useSystemSettings();
     const [serverError, setServerError] = useState<string | null>(null);
     const {
         register,
@@ -71,7 +73,7 @@ export function LoginForm({
             notify({
                 variant: "success",
                 title: "Signed in",
-                description: "Welcome back to your ProdLabel workspace.",
+                description: `Welcome back to your ${systemSettings.system_name} workspace.`,
             });
 
             const from =
@@ -97,7 +99,7 @@ export function LoginForm({
                         </h1>
                         <FieldDescription className="mt-2 max-w-sm text-sm leading-6 text-foreground/60">
                             Sign in with your username and password to open the
-                            ProdLabel workspace.
+                            {systemSettings.system_name} workspace.
                         </FieldDescription>
                     </div>
 

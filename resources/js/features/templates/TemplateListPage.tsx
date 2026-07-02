@@ -6,8 +6,8 @@ import { useNavigate } from "react-router-dom";
 
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import type { PaginatedCustomers } from "@/features/customers/partials/customer.model";
 import { api } from "@/shared/services/api";
+import { useCan } from "@/features/auth/permissions";
 import { useToastStore, type ToastVariant } from "@/stores/toastStore";
 
 import {
@@ -26,6 +26,7 @@ import {
 } from "./partials/template.model";
 
 export function TemplateListPage() {
+    const canManage = useCan("template.manage");
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const notify = useToastStore((state) => state.notify);
@@ -50,19 +51,8 @@ export function TemplateListPage() {
         },
     });
 
-    const customersQuery = useQuery({
-        queryKey: ["template-customer-options"],
-        queryFn: async () => {
-            const response = await api.get<PaginatedCustomers>("/customers", {
-                params: { per_page: 100 },
-            });
-            return response.data.data;
-        },
-    });
-
     const templates = templatesQuery.data?.data ?? [];
     const meta = templatesQuery.data?.meta;
-    const customers = customersQuery.data ?? [];
     const stats = React.useMemo(
         () => TemplatePresenter.getStats(templates),
         [templates],
@@ -102,6 +92,12 @@ export function TemplateListPage() {
         setFilters(defaultTemplateFilters);
     }
 
+    function applyColumnFilters(next: Partial<TemplateFilters>) {
+        const updated = { ...draftFilters, ...next, page: 1 };
+        setDraftFilters(updated);
+        setFilters(updated);
+    }
+
     async function refreshTemplates() {
         await queryClient.invalidateQueries({ queryKey: ["templates"] });
         await templatesQuery.refetch();
@@ -113,7 +109,7 @@ export function TemplateListPage() {
                 title="Template Management"
                 description="Create printable templates, assign customers, duplicate layouts, preview output, and manage publishing status."
                 actions={
-                    <Button onClick={() => navigate("/templates/designer")}>
+                    <Button disabled={!canManage} onClick={() => navigate("/templates/designer")}>
                         <PlusIcon className="size-4" />
                         Create Template
                     </Button>
@@ -125,7 +121,6 @@ export function TemplateListPage() {
             <TemplatesDataTable
                 templates={templates}
                 meta={meta}
-                customers={customers}
                 filters={filters}
                 draftFilters={draftFilters}
                 isLoading={templatesQuery.isLoading}
@@ -133,13 +128,23 @@ export function TemplateListPage() {
                 isFetching={templatesQuery.isFetching}
                 onDraftFiltersChange={setDraftFilters}
                 onApplyFilters={applyFilters}
+                onCustomerFilterChange={(customerId) =>
+                    applyColumnFilters({ customerId })
+                }
+                onStatusFilterChange={(statuses) =>
+                    applyColumnFilters({ statuses })
+                }
                 onResetFilters={resetFilters}
                 onFiltersChange={setFilters}
                 onRefresh={refreshTemplates}
                 onCreate={() => navigate("/templates/designer")}
-                onEdit={(template) =>
-                    navigate(`/templates/designer?id=${template.id}`)
-                }
+                onEdit={(template) => {
+                    queryClient.setQueryData(
+                        ["template", String(template.id)],
+                        template,
+                    );
+                    navigate(`/templates/designer?id=${template.id}`);
+                }}
                 onPreview={setPreviewTemplate}
                 onDuplicate={(template) => duplicateTemplate.mutate(template)}
                 onConfirm={setConfirmAction}
